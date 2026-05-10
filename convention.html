@@ -302,6 +302,21 @@ function closeModal() {
   document.getElementById('modal-container').innerHTML = '';
 }
 
+// ─── Admin Auth (stub — full implementation in Task 3) ────────────
+function promptAdmin() {
+  const pw = prompt('Admin password:');
+  if (pw === ADMIN_PASSWORD) {
+    sessionStorage.setItem('adminMode', 'true');
+    document.getElementById('admin-badge').classList.add('visible');
+    showToast('Admin mode enabled');
+  } else if (pw !== null) {
+    showToast('Wrong password');
+  }
+}
+
+// Stub — implemented in Task 7
+function openProposeMeetup() { showToast('Meetup planner coming soon'); }
+
 // ─── Home Screen ─────────────────────────────────────────────────
 async function loadHome() {
   const snap = await db.collection('convention').doc('config').get();
@@ -327,8 +342,13 @@ async function loadStats() {
   document.getElementById('stat-booths').textContent = booths.size + ' exhibitors';
 }
 
-loadHome();
-loadStats();
+loadHome().catch(() => showToast('Failed to load convention info'));
+loadStats().catch(() => {
+  ['sessions', 'attendees', 'meetups', 'booths'].forEach(k => {
+    const el = document.getElementById('stat-' + k);
+    if (el) el.textContent = '—';
+  });
+});
 
 console.log('Firebase initialized. App shell ready.');
 </script>
