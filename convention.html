@@ -367,25 +367,21 @@ input:focus, textarea:focus, select:focus {
 <!-- Modal container -->
 <div id="modal-container"></div>
 
-<!-- Firebase SDK v10 (compat mode for simplicity) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-
 <script>
-// ─── Firebase Config ─────────────────────────────────────────────
-const firebaseConfig = {
-  apiKey: "AIzaSyCqyCcs2R2e7AegGjvFAwG98wlamtbHvZY",
-  authDomain: "bard-frontend.firebaseapp.com",
-  projectId: "bard-frontend",
-  storageBucket: "bard-frontend.firebasestorage.app",
-  messagingSenderId: "175205271074",
-  appId: "1:175205271074:web:2b7bd4d34d33bf38e6ec7b",
-  databaseURL: "https://bard-frontend-default-rtdb.firebaseio.com"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-const rtdb = firebase.database();
+
+// ─── Storage Helpers ──────────────────────────────────────────────
+function store(key, data) {
+  localStorage.setItem('blobcon_' + key, JSON.stringify(data));
+}
+function load(key) {
+  try { return JSON.parse(localStorage.getItem('blobcon_' + key)) || []; } catch { return []; }
+}
+function loadObj(key) {
+  try { return JSON.parse(localStorage.getItem('blobcon_' + key)) || {}; } catch { return {}; }
+}
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
 
 // ─── Globals ──────────────────────────────────────────────────────
 const ADMIN_PASSWORD = '1234321';
@@ -493,44 +489,24 @@ function reloadActiveSection() {
 
 // ─── Edit Banner ─────────────────────────────────────────────────
 async function openEditBanner() {
-  let c = {};
-  try {
-    const snap = await db.collection('convention').doc('config').get();
-    c = snap.exists ? snap.data() : {};
-  } catch (e) {
-    console.error('Load config failed:', e);
-  }
-  openModal(`
-    <div class="modal">
-      <h3>✏️ Edit Convention Details</h3>
-      <form id="banner-form">
-        <div class="form-group"><label>Convention Name</label><input name="name" value="${escapeAttr(c.name)}" required /></div>
-        <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(c.tagline)}" /></div>
-        <div class="form-group"><label>Presenter Line</label><input name="presenter" value="${escapeAttr(c.presenter)}" /></div>
-        <div class="form-group"><label>Dates</label><input name="dates" value="${escapeAttr(c.dates)}" /></div>
-        <div class="form-group"><label>Location</label><input name="location" value="${escapeAttr(c.location)}" /></div>
-        <div class="form-group"><label>Attendee Label (e.g. "342 Attendees")</label><input name="attendeeLabel" value="${escapeAttr(c.attendeeLabel)}" /></div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
-    </div>
-  `, async form => {
-    try {
-      await db.collection('convention').doc('config').set({
-        name: form.name.value.trim(),
-        tagline: form.tagline.value.trim(),
-        presenter: form.presenter.value.trim(),
-        dates: form.dates.value.trim(),
-        location: form.location.value.trim(),
-        attendeeLabel: form.attendeeLabel.value.trim()
-      });
-      closeModal(); loadHome(); showToast('Convention details updated');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Save banner failed:', e);
-    }
+  const c = loadObj('config');
+  openModal(`<div class="modal">
+    <h3>✏️ Edit Convention Details</h3>
+    <form id="banner-form">
+      <div class="form-group"><label>Convention Name</label><input name="name" value="${escapeAttr(c.name||'')}" required /></div>
+      <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(c.tagline||'')}" /></div>
+      <div class="form-group"><label>Presenter Line</label><input name="presenter" value="${escapeAttr(c.presenter||'')}" /></div>
+      <div class="form-group"><label>Dates</label><input name="dates" value="${escapeAttr(c.dates||'')}" /></div>
+      <div class="form-group"><label>Location</label><input name="location" value="${escapeAttr(c.location||'')}" /></div>
+      <div class="form-group"><label>Attendee Label</label><input name="attendeeLabel" value="${escapeAttr(c.attendeeLabel||'')}" /></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>`, form => {
+    store('config', { name: form.name.value.trim(), tagline: form.tagline.value.trim(), presenter: form.presenter.value.trim(), dates: form.dates.value.trim(), location: form.location.value.trim(), attendeeLabel: form.attendeeLabel.value.trim() });
+    closeModal(); loadHome(); showToast('Convention details updated');
   });
 }
 
@@ -540,40 +516,25 @@ let allSessions = [];
 async function loadSessions() {
   const container = document.getElementById('sessions-list');
   if (!container) return;
-  container.innerHTML = '<div class="spinner"></div>';
-  try {
-    const snap = await db.collection('sessions').orderBy('day').get();
-    allSessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Sort by day, then by time converted to minutes for correct AM/PM ordering
-    allSessions.sort((a, b) => {
-      if (a.day !== b.day) return a.day - b.day;
-      const toMin = t => {
-        const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(t || '');
-        if (!m) return 0;
-        let h = parseInt(m[1]); const min = parseInt(m[2]); const ap = m[3].toUpperCase();
-        if (ap === 'PM' && h !== 12) h += 12;
-        if (ap === 'AM' && h === 12) h = 0;
-        return h * 60 + min;
-      };
-      return toMin(a.time) - toMin(b.time);
-    });
-  } catch (e) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load sessions.</p>';
-    return;
-  }
-
+  allSessions = load('sessions').sort((a, b) => {
+    if (a.day !== b.day) return a.day - b.day;
+    const toMin = t => {
+      const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(t || '');
+      if (!m) return 0;
+      let h = parseInt(m[1]); const min = parseInt(m[2]); const ap = m[3].toUpperCase();
+      if (ap === 'PM' && h !== 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + min;
+    };
+    return toMin(a.time) - toMin(b.time);
+  });
   if (allSessions.length === 0) {
     container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No sessions yet.</p>';
     return;
   }
-
   const byDay = {};
-  allSessions.forEach(s => {
-    if (!byDay[s.day]) byDay[s.day] = [];
-    byDay[s.day].push(s);
-  });
-
-  container.innerHTML = Object.keys(byDay).sort((a,b) => a-b).map(day => `
+  allSessions.forEach(s => { if (!byDay[s.day]) byDay[s.day] = []; byDay[s.day].push(s); });
+  container.innerHTML = Object.keys(byDay).sort((a,b)=>a-b).map(day => `
     <div class="day-group">
       <div class="day-label">Day ${day}</div>
       ${byDay[day].map(s => `
@@ -586,15 +547,12 @@ async function loadSessions() {
           <h4>${escapeHtml(s.title)}</h4>
           <div style="font-size:13px;color:var(--accent);margin-bottom:6px;">🎤 ${escapeHtml(s.speaker)}</div>
           <div class="session-desc">${escapeHtml(s.description)}</div>
-          ${isAdmin() ? `
-            <div class="admin-row">
-              <button class="btn btn-ghost btn-sm" onclick="openEditSession('${s.id}')">✏️ Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑 Delete</button>
-            </div>` : ''}
-        </div>
-      `).join('')}
-    </div>
-  `).join('');
+          ${isAdmin() ? `<div class="admin-row">
+            <button class="btn btn-ghost btn-sm" onclick="openEditSession('${s.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑 Delete</button>
+          </div>` : ''}
+        </div>`).join('')}
+    </div>`).join('');
 }
 
 function sessionFormHtml(s = {}) {
@@ -624,58 +582,28 @@ function sessionFormHtml(s = {}) {
 }
 
 function openAddSession() {
-  openModal(sessionFormHtml(), async form => {
-    const data = {
-      title: form.title.value.trim(),
-      speaker: form.speaker.value.trim(),
-      day: parseInt(form.day.value),
-      time: form.time.value.trim(),
-      room: form.room.value.trim(),
-      track: form.track.value,
-      description: form.description.value.trim()
-    };
-    try {
-      await db.collection('sessions').add(data);
-      closeModal(); loadSessions(); loadStats(); showToast('Session added');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Add session failed:', e);
-    }
+  openModal(sessionFormHtml(), form => {
+    const sessions = load('sessions');
+    sessions.push({ id: genId(), title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() });
+    store('sessions', sessions);
+    closeModal(); loadSessions(); loadStats(); showToast('Session added');
   });
 }
 
 function openEditSession(id) {
   const s = allSessions.find(x => x.id === id);
   if (!s) return;
-  openModal(sessionFormHtml(s), async form => {
-    const data = {
-      title: form.title.value.trim(),
-      speaker: form.speaker.value.trim(),
-      day: parseInt(form.day.value),
-      time: form.time.value.trim(),
-      room: form.room.value.trim(),
-      track: form.track.value,
-      description: form.description.value.trim()
-    };
-    try {
-      await db.collection('sessions').doc(id).update(data);
-      closeModal(); loadSessions(); showToast('Session updated');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Edit session failed:', e);
-    }
+  openModal(sessionFormHtml(s), form => {
+    const sessions = load('sessions').map(x => x.id === id ? { ...x, title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() } : x);
+    store('sessions', sessions);
+    closeModal(); loadSessions(); showToast('Session updated');
   });
 }
 
-async function deleteSession(id) {
+function deleteSession(id) {
   if (!confirm('Delete this session?')) return;
-  try {
-    await db.collection('sessions').doc(id).delete();
-    loadSessions(); loadStats(); showToast('Session deleted');
-  } catch (e) {
-    showToast('Delete failed — check Firestore rules');
-    console.error('Delete session failed:', e);
-  }
+  store('sessions', load('sessions').filter(x => x.id !== id));
+  loadSessions(); loadStats(); showToast('Session deleted');
 }
 
 // ─── Attendees ────────────────────────────────────────────────────
@@ -684,14 +612,8 @@ let allAttendees = [];
 async function loadAttendees() {
   const container = document.getElementById('attendees-list');
   if (!container) return;
-  container.innerHTML = '<div class="spinner"></div>';
-  try {
-    const snap = await db.collection('attendees').orderBy('name').get();
-    allAttendees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderAttendees(allAttendees);
-  } catch (e) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load attendees.</p>';
-  }
+  allAttendees = load('attendees').sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  renderAttendees(allAttendees);
 }
 
 function renderAttendees(list) {
@@ -740,92 +662,60 @@ function attendeeFormHtml(a = {}) {
 }
 
 function openAddAttendee() {
-  openModal(attendeeFormHtml(), async form => {
-    const data = { name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatarUrl: '' };
-    try {
-      await db.collection('attendees').add(data);
-      closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
-    } catch (e) { showToast('Save failed — check Firestore rules'); console.error(e); }
+  openModal(attendeeFormHtml(), form => {
+    const attendees = load('attendees');
+    attendees.push({ id: genId(), name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatarUrl: '' });
+    store('attendees', attendees);
+    closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
   });
 }
 
 function openEditAttendee(id) {
   const a = allAttendees.find(x => x.id === id);
   if (!a) return;
-  openModal(attendeeFormHtml(a), async form => {
-    try {
-      await db.collection('attendees').doc(id).update({ name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() });
-      closeModal(); loadAttendees(); showToast('Attendee updated');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Edit attendee failed:', e);
-    }
+  openModal(attendeeFormHtml(a), form => {
+    store('attendees', load('attendees').map(x => x.id === id ? { ...x, name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() } : x));
+    closeModal(); loadAttendees(); showToast('Attendee updated');
   });
 }
 
-async function deleteAttendee(id) {
+function deleteAttendee(id) {
   if (!confirm('Remove this attendee?')) return;
-  try {
-    await db.collection('attendees').doc(id).delete();
-    loadAttendees(); loadStats(); showToast('Attendee removed');
-  } catch (e) {
-    showToast('Delete failed — check Firestore rules');
-    console.error('Delete attendee failed:', e);
-  }
+  store('attendees', load('attendees').filter(x => x.id !== id));
+  loadAttendees(); loadStats(); showToast('Attendee removed');
 }
 
 // ─── Meetups ──────────────────────────────────────────────────────
 async function loadMeetups() {
   const container = document.getElementById('meetups-list');
   if (!container) return;
-  container.innerHTML = '<div class="spinner"></div>';
-  try {
-    const snap = await db.collection('meetups').orderBy('datetime').get();
-    const meetups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (meetups.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No meetups yet. Propose one!</p>';
-      return;
-    }
-    container.innerHTML = meetups.map(m => `
-      <div class="card meetup-card" style="margin-bottom:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span class="status-badge status-${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>
-          <span style="font-size:11px;color:var(--text-muted)">by ${escapeHtml(m.proposer)}</span>
-        </div>
-        <h4>👥 ${escapeHtml(m.participants)}</h4>
-        <div class="meetup-meta">🕐 ${escapeHtml(m.datetime)} &nbsp;|&nbsp; 📍 ${escapeHtml(m.location)}</div>
-        ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${escapeHtml(m.notes)}</div>` : ''}
-        ${isAdmin() ? `
-          <div class="admin-row" style="margin-top:10px">
-            ${m.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
-            <button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>
-          </div>` : ''}
+  const meetups = load('meetups').sort((a,b) => (a.datetime||'').localeCompare(b.datetime||''));
+  if (meetups.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No meetups yet. Propose one!</p>'; return; }
+  container.innerHTML = meetups.map(m => `
+    <div class="card meetup-card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span class="status-badge status-${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>
+        <span style="font-size:11px;color:var(--text-muted)">by ${escapeHtml(m.proposer||'')}</span>
       </div>
-    `).join('');
-  } catch (e) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load meetups.</p>';
-  }
+      <h4>👥 ${escapeHtml(m.participants||'')}</h4>
+      <div class="meetup-meta">🕐 ${escapeHtml(m.datetime||'')} &nbsp;|&nbsp; 📍 ${escapeHtml(m.location||'')}</div>
+      ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${escapeHtml(m.notes)}</div>` : ''}
+      ${isAdmin() ? `<div class="admin-row" style="margin-top:10px">
+        ${m.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
+        <button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>
+      </div>` : ''}
+    </div>`).join('');
 }
 
-async function confirmMeetup(id) {
-  try {
-    await db.collection('meetups').doc(id).update({ status: 'confirmed' });
-    loadMeetups(); showToast('Meetup confirmed!');
-  } catch (e) {
-    showToast('Confirm failed — check Firestore rules');
-    console.error('Confirm meetup failed:', e);
-  }
+function confirmMeetup(id) {
+  store('meetups', load('meetups').map(x => x.id === id ? { ...x, status: 'confirmed' } : x));
+  loadMeetups(); showToast('Meetup confirmed!');
 }
 
-async function deleteMeetup(id) {
+function deleteMeetup(id) {
   if (!confirm('Delete this meetup?')) return;
-  try {
-    await db.collection('meetups').doc(id).delete();
-    loadMeetups(); loadStats(); showToast('Meetup deleted');
-  } catch (e) {
-    showToast('Delete failed — check Firestore rules');
-    console.error('Delete meetup failed:', e);
-  }
+  store('meetups', load('meetups').filter(x => x.id !== id));
+  loadMeetups(); loadStats(); showToast('Meetup deleted');
 }
 
 // ─── Booths ───────────────────────────────────────────────────────
@@ -834,35 +724,21 @@ let allBooths = [];
 async function loadBooths() {
   const container = document.getElementById('booths-list');
   if (!container) return;
-  container.innerHTML = '<div class="spinner"></div>';
-  try {
-    const snap = await db.collection('booths').orderBy('company').get();
-    allBooths = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    if (allBooths.length === 0) {
-      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No booths yet.</p>';
-      return;
-    }
-    container.innerHTML = allBooths.map(b => `
-      <div class="card booth-card">
-        <div class="booth-header">
-          <div class="booth-logo">${escapeHtml((b.company || '?').charAt(0))}</div>
-          <div>
-            <div class="booth-company">${escapeHtml(b.company)}</div>
-            <div class="booth-tagline">${escapeHtml(b.tagline)}</div>
-          </div>
-        </div>
-        <div class="booth-desc">${escapeHtml(b.description)}</div>
-        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          ${/^https?:\/\//i.test(b.website) ? `<a href="${escapeHtml(b.website)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">🌐 Visit Website</a>` : ''}
-          ${isAdmin() ? `
-            <button class="btn btn-ghost btn-sm" onclick="openEditBooth('${b.id}')">✏️ Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteBooth('${b.id}')">🗑</button>` : ''}
-        </div>
+  allBooths = load('booths').sort((a,b) => (a.company||'').localeCompare(b.company||''));
+  if (allBooths.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No booths yet.</p>'; return; }
+  container.innerHTML = allBooths.map(b => `
+    <div class="card booth-card">
+      <div class="booth-header">
+        <div class="booth-logo">${escapeHtml((b.company||'?').charAt(0))}</div>
+        <div><div class="booth-company">${escapeHtml(b.company||'')}</div><div class="booth-tagline">${escapeHtml(b.tagline||'')}</div></div>
       </div>
-    `).join('');
-  } catch (e) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load booths.</p>';
-  }
+      <div class="booth-desc">${escapeHtml(b.description||'')}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        ${/^https?:\/\//i.test(b.website||'') ? `<a href="${escapeHtml(b.website)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">🌐 Visit Website</a>` : ''}
+        ${isAdmin() ? `<button class="btn btn-ghost btn-sm" onclick="openEditBooth('${b.id}')">✏️ Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteBooth('${b.id}')">🗑</button>` : ''}
+      </div>
+    </div>`).join('');
 }
 
 function boothFormHtml(b = {}) {
@@ -883,37 +759,27 @@ function boothFormHtml(b = {}) {
 }
 
 function openAddBooth() {
-  openModal(boothFormHtml(), async form => {
-    try {
-      await db.collection('booths').add({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
-      closeModal(); loadBooths(); loadStats(); showToast('Booth added');
-    } catch (e) { showToast('Save failed — check Firestore rules'); console.error(e); }
+  openModal(boothFormHtml(), form => {
+    const booths = load('booths');
+    booths.push({ id: genId(), company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
+    store('booths', booths);
+    closeModal(); loadBooths(); loadStats(); showToast('Booth added');
   });
 }
 
 function openEditBooth(id) {
   const b = allBooths.find(x => x.id === id);
   if (!b) return;
-  openModal(boothFormHtml(b), async form => {
-    try {
-      await db.collection('booths').doc(id).update({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() });
-      closeModal(); loadBooths(); showToast('Booth updated');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Edit booth failed:', e);
-    }
+  openModal(boothFormHtml(b), form => {
+    store('booths', load('booths').map(x => x.id === id ? { ...x, company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() } : x));
+    closeModal(); loadBooths(); showToast('Booth updated');
   });
 }
 
-async function deleteBooth(id) {
+function deleteBooth(id) {
   if (!confirm('Delete this booth?')) return;
-  try {
-    await db.collection('booths').doc(id).delete();
-    loadBooths(); loadStats(); showToast('Booth deleted');
-  } catch (e) {
-    showToast('Delete failed — check Firestore rules');
-    console.error('Delete booth failed:', e);
-  }
+  store('booths', load('booths').filter(x => x.id !== id));
+  loadBooths(); loadStats(); showToast('Booth deleted');
 }
 
 // ─── Group Chat ───────────────────────────────────────────────────
@@ -922,39 +788,27 @@ let chatInitialized = false;
 function initChat() {
   if (chatInitialized) return;
   chatInitialized = true;
-  const chatRef = rtdb.ref('/blobcon2025/chat');
-  chatRef.limitToLast(200).on('value', snap => {
-    const messages = [];
-    snap.forEach(child => messages.push({ id: child.key, ...child.val() }));
-    renderMessages(messages);
-  });
+  renderMessages(load('chat'));
 }
 
 function renderMessages(messages) {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  if (messages.length === 0) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No messages yet. Say hello!</p>';
-    return;
-  }
+  if (messages.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No messages yet. Say hello!</p>'; return; }
   container.innerHTML = messages.map(m => `
     <div class="chat-message">
-      <div class="chat-author">${escapeHtml(m.author)}</div>
-      <div class="chat-bubble">
-        <div class="chat-text">${escapeHtml(m.text)}</div>
-      </div>
-      <div class="chat-time">${new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-    </div>
-  `).join('');
+      <div class="chat-author">${escapeHtml(m.author||'')}</div>
+      <div class="chat-bubble"><div class="chat-text">${escapeHtml(m.text||'')}</div></div>
+      <div class="chat-time">${new Date(m.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</div>
+    </div>`).join('');
   container.scrollTop = container.scrollHeight;
 }
 
-async function sendChatMessage() {
+function sendChatMessage() {
   const input = document.getElementById('chat-input');
   if (!input) return;
   const text = input.value.trim();
   if (!text) return;
-
   let author = localStorage.getItem('chatDisplayName');
   if (!author) {
     const name = prompt('Enter your display name for the chat:');
@@ -962,13 +816,11 @@ async function sendChatMessage() {
     author = name.trim();
     localStorage.setItem('chatDisplayName', author);
   }
-
   input.value = '';
-  await rtdb.ref('/blobcon2025/chat').push({
-    author,
-    text,
-    timestamp: Date.now()
-  });
+  const messages = load('chat');
+  messages.push({ id: genId(), author, text, timestamp: Date.now() });
+  store('chat', messages);
+  renderMessages(messages);
 }
 
 function escapeHtml(str) {
@@ -984,13 +836,10 @@ function escapeHtml(str) {
 const escapeAttr = escapeHtml;
 
 // ─── Seed Data ────────────────────────────────────────────────────
-async function seedDummyData() {
-  const config = await db.collection('convention').doc('config').get();
-  if (config.exists) return;
+function seedData() {
+  if (localStorage.getItem('blobcon_seeded') === 'true') return;
 
-  const batch = db.batch();
-
-  batch.set(db.collection('convention').doc('config'), {
+  store('config', {
     name: 'BlobCon 2025',
     tagline: 'The Future of Social Connectivity',
     presenter: 'BLOBS NETWORK PRESENTS',
@@ -999,102 +848,76 @@ async function seedDummyData() {
     attendeeLabel: '342 Attendees'
   });
 
-  const sessions = [
-    { day: 1, time: '9:00 AM', title: 'Opening Keynote: The Anti-Polarization Stack', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Kicking off BlobCon with a deep dive into how Blobs Network is reimagining social connectivity.' },
-    { day: 1, time: '11:00 AM', title: 'Workshop: Blob Architecture in Practice', speaker: 'Mia Chen', room: 'Workshop A', track: 'Engineering', description: 'Hands-on session covering the technical design of micro-communities and blob federation.' },
-    { day: 1, time: '2:00 PM', title: 'Panel: Building for Trust in Social Networks', speaker: 'Rivera, Chen, & Obi', room: 'Main Stage', track: 'Community', description: 'A candid conversation about fake accounts, moderation, and earning user trust at scale.' },
-    { day: 2, time: '10:00 AM', title: 'Talk: Token Economies & Incentive Design', speaker: 'Sam Obi', room: 'Hall B', track: 'Product', description: 'How token rewards can shift social network behavior from outrage to authentic engagement.' },
-    { day: 2, time: '12:00 PM', title: 'Workshop: Metaverse Integration with Blobs', speaker: 'Priya Nair', room: 'Workshop B', track: 'Engineering', description: 'Build your first 3D blob neighborhood — avatars, spatial audio, and digital swag.' },
-    { day: 2, time: '3:00 PM', title: 'Fireside: Lessons from 0 to 1M Users', speaker: 'Jordan Lee', room: 'Main Stage', track: 'Growth', description: 'Jordan shares unfiltered lessons from launching a social platform in a market dominated by giants.' },
-    { day: 3, time: '10:00 AM', title: 'Talk: AI Moderation at Scale', speaker: 'Fatima Al-Zahra', room: 'Hall B', track: 'AI', description: 'Practical approaches to using LLMs for content moderation without killing organic discussion.' },
-    { day: 3, time: '2:00 PM', title: 'Closing Keynote: Where We Go From Here', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Vision for the next chapter of Blobs Network and the future of decentralized social platforms.' },
-  ];
-  sessions.forEach(s => batch.set(db.collection('sessions').doc(), s));
+  store('sessions', [
+    { id: genId(), day: 1, time: '9:00 AM', title: 'Opening Keynote: The Anti-Polarization Stack', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Kicking off BlobCon with a deep dive into how Blobs Network is reimagining social connectivity.' },
+    { id: genId(), day: 1, time: '11:00 AM', title: 'Workshop: Blob Architecture in Practice', speaker: 'Mia Chen', room: 'Workshop A', track: 'Engineering', description: 'Hands-on session covering the technical design of micro-communities and blob federation.' },
+    { id: genId(), day: 1, time: '2:00 PM', title: 'Panel: Building for Trust in Social Networks', speaker: 'Rivera, Chen, & Obi', room: 'Main Stage', track: 'Community', description: 'A candid conversation about fake accounts, moderation, and earning user trust at scale.' },
+    { id: genId(), day: 1, time: '4:00 PM', title: 'Lightning Talks: Community Builders', speaker: 'Various', room: 'Hall B', track: 'Community', description: 'Five 5-minute talks from community organizers sharing what actually works when building online spaces.' },
+    { id: genId(), day: 2, time: '9:00 AM', title: 'Breakfast Keynote: Decentralized Identity', speaker: 'Eli Shapiro', room: 'Main Stage', track: 'Engineering', description: 'Why your social graph should belong to you — a technical walkthrough of portable identity protocols.' },
+    { id: genId(), day: 2, time: '10:00 AM', title: 'Talk: Token Economies & Incentive Design', speaker: 'Sam Obi', room: 'Hall B', track: 'Product', description: 'How token rewards can shift social network behavior from outrage to authentic engagement.' },
+    { id: genId(), day: 2, time: '12:00 PM', title: 'Workshop: Metaverse Integration with Blobs', speaker: 'Priya Nair', room: 'Workshop B', track: 'Engineering', description: 'Build your first 3D blob neighborhood — avatars, spatial audio, and digital swag.' },
+    { id: genId(), day: 2, time: '1:00 PM', title: 'Workshop: Designing for Diverse Communities', speaker: 'Carlos Mendes', room: 'Workshop A', track: 'Community', description: 'Hands-on UX workshop focused on making social features that work across cultures, languages, and contexts.' },
+    { id: genId(), day: 2, time: '3:00 PM', title: 'Fireside: Lessons from 0 to 1M Users', speaker: 'Jordan Lee', room: 'Main Stage', track: 'Growth', description: 'Jordan shares unfiltered lessons from launching a social platform in a market dominated by giants.' },
+    { id: genId(), day: 2, time: '4:30 PM', title: 'Talk: From Virality to Sustainability', speaker: 'Dana Park', room: 'Hall B', track: 'Growth', description: 'Why chasing viral growth hurts community health — and what sustainable growth actually looks like.' },
+    { id: genId(), day: 3, time: '9:00 AM', title: 'Morning Workshop: Trust & Safety Playbook', speaker: 'Dana Park & Fatima Al-Zahra', room: 'Workshop B', track: 'Community', description: 'Interactive workshop building a trust and safety response playbook for your community.' },
+    { id: genId(), day: 3, time: '10:00 AM', title: 'Talk: AI Moderation at Scale', speaker: 'Fatima Al-Zahra', room: 'Hall B', track: 'AI', description: 'Practical approaches to using LLMs for content moderation without killing organic discussion.' },
+    { id: genId(), day: 3, time: '12:00 PM', title: 'Panel: The Next 5 Years of Social', speaker: 'Rivera, Nair, Obi, Lee', room: 'Main Stage', track: 'Keynote', description: 'Where does social networking go from here? A forward-looking conversation with founders and investors.' },
+    { id: genId(), day: 3, time: '2:00 PM', title: 'Closing Keynote: Where We Go From Here', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Vision for the next chapter of Blobs Network and the future of decentralized social platforms.' },
+  ]);
 
-  const attendees = [
-    { name: 'Alex Rivera', company: 'Blobs Network', role: 'CEO & Co-founder', avatarUrl: '' },
-    { name: 'Mia Chen', company: 'Blobs Network', role: 'Engineering Lead', avatarUrl: '' },
-    { name: 'Sam Obi', company: 'TokenForge', role: 'Product Director', avatarUrl: '' },
-    { name: 'Priya Nair', company: 'MetaLayer', role: 'CTO', avatarUrl: '' },
-    { name: 'Jordan Lee', company: 'Emerge Ventures', role: 'Partner', avatarUrl: '' },
-    { name: 'Fatima Al-Zahra', company: 'SafeNet AI', role: 'Research Lead', avatarUrl: '' },
-    { name: 'Carlos Mendes', company: 'Freelance', role: 'UI/UX Designer', avatarUrl: '' },
-    { name: 'Yuki Tanaka', company: 'Horizon Labs', role: 'Backend Engineer', avatarUrl: '' },
-    { name: 'Dana Park', company: 'Social Good Co', role: 'Head of Trust & Safety', avatarUrl: '' },
-    { name: 'Eli Shapiro', company: 'ProtocolX', role: 'Developer Advocate', avatarUrl: '' },
-    { name: 'Amara Diallo', company: 'CommunityOS', role: 'Founder', avatarUrl: '' },
-    { name: 'Ben Walsh', company: 'Blobs Network', role: 'Growth Manager', avatarUrl: '' },
-  ];
-  attendees.forEach(a => batch.set(db.collection('attendees').doc(), a));
+  store('attendees', [
+    { id: genId(), name: 'Alex Rivera', company: 'Blobs Network', role: 'CEO & Co-founder', avatarUrl: '' },
+    { id: genId(), name: 'Amara Diallo', company: 'CommunityOS', role: 'Founder', avatarUrl: '' },
+    { id: genId(), name: 'Ben Walsh', company: 'Blobs Network', role: 'Growth Manager', avatarUrl: '' },
+    { id: genId(), name: 'Carlos Mendes', company: 'Freelance', role: 'UI/UX Designer', avatarUrl: '' },
+    { id: genId(), name: 'Dana Park', company: 'Social Good Co', role: 'Head of Trust & Safety', avatarUrl: '' },
+    { id: genId(), name: 'Eli Shapiro', company: 'ProtocolX', role: 'Developer Advocate', avatarUrl: '' },
+    { id: genId(), name: 'Fatima Al-Zahra', company: 'SafeNet AI', role: 'Research Lead', avatarUrl: '' },
+    { id: genId(), name: 'Jordan Lee', company: 'Emerge Ventures', role: 'Partner', avatarUrl: '' },
+    { id: genId(), name: 'Mia Chen', company: 'Blobs Network', role: 'Engineering Lead', avatarUrl: '' },
+    { id: genId(), name: 'Priya Nair', company: 'MetaLayer', role: 'CTO', avatarUrl: '' },
+    { id: genId(), name: 'Sam Obi', company: 'TokenForge', role: 'Product Director', avatarUrl: '' },
+    { id: genId(), name: 'Yuki Tanaka', company: 'Horizon Labs', role: 'Backend Engineer', avatarUrl: '' },
+  ]);
 
-  const booths = [
-    { company: 'TokenForge', tagline: 'Incentivize everything', description: 'Token infrastructure for social platforms — rewards, governance, and digital ownership at scale.', logoUrl: '', website: 'https://example.com' },
-    { company: 'MetaLayer', tagline: 'Your world, your rules', description: '3D virtual space SDK — drop a metaverse into any web app in under an hour.', logoUrl: '', website: 'https://example.com' },
-    { company: 'SafeNet AI', tagline: 'Moderation that gets it right', description: 'AI content moderation API trained on nuanced community guidelines, not just keyword lists.', logoUrl: '', website: 'https://example.com' },
-    { company: 'ProtocolX', tagline: 'Open social infrastructure', description: 'Decentralized identity and social graph protocol — bring your followers anywhere.', logoUrl: '', website: 'https://example.com' },
-    { company: 'CommunityOS', tagline: 'Communities deserve better tools', description: 'The operating system for online communities — analytics, moderation, and member management.', logoUrl: '', website: 'https://example.com' },
-  ];
-  booths.forEach(b => batch.set(db.collection('booths').doc(), b));
+  store('booths', [
+    { id: genId(), company: 'TokenForge', tagline: 'Incentivize everything', description: 'Token infrastructure for social platforms — rewards, governance, and digital ownership at scale.', logoUrl: '', website: 'https://example.com' },
+    { id: genId(), company: 'MetaLayer', tagline: 'Your world, your rules', description: '3D virtual space SDK — drop a metaverse into any web app in under an hour.', logoUrl: '', website: 'https://example.com' },
+    { id: genId(), company: 'SafeNet AI', tagline: 'Moderation that gets it right', description: 'AI content moderation API trained on nuanced community guidelines, not just keyword lists.', logoUrl: '', website: 'https://example.com' },
+    { id: genId(), company: 'ProtocolX', tagline: 'Open social infrastructure', description: 'Decentralized identity and social graph protocol — bring your followers anywhere.', logoUrl: '', website: 'https://example.com' },
+    { id: genId(), company: 'CommunityOS', tagline: 'Communities deserve better tools', description: 'The operating system for online communities — analytics, moderation, and member management.', logoUrl: '', website: 'https://example.com' },
+  ]);
 
-  await batch.commit();
-  console.log('BlobCon 2025 seed data written to Firestore.');
-}
-
-async function addExtraSessions() {
-  const existing = await db.collection('sessions').where('day', '==', 1).get();
-  if (existing.size > 3) return; // already added extras
-  const extraSessions = [
-    { day: 1, time: '4:00 PM', title: 'Lightning Talks: Community Builders', speaker: 'Various', room: 'Hall B', track: 'Community', description: 'Five 5-minute talks from community organizers sharing what actually works when building online spaces.' },
-    { day: 2, time: '9:00 AM', title: 'Breakfast Keynote: Decentralized Identity', speaker: 'Eli Shapiro', room: 'Main Stage', track: 'Engineering', description: 'Why your social graph should belong to you — a technical walkthrough of portable identity protocols.' },
-    { day: 2, time: '1:00 PM', title: 'Workshop: Designing for Diverse Communities', speaker: 'Carlos Mendes', room: 'Workshop A', track: 'Community', description: 'Hands-on UX workshop focused on making social features that work across cultures, languages, and contexts.' },
-    { day: 2, time: '4:30 PM', title: 'Talk: From Virality to Sustainability', speaker: 'Dana Park', room: 'Hall B', track: 'Growth', description: 'Why chasing viral growth hurts community health — and what sustainable growth actually looks like.' },
-    { day: 3, time: '9:00 AM', title: 'Morning Workshop: Trust & Safety Playbook', speaker: 'Dana Park & Fatima Al-Zahra', room: 'Workshop B', track: 'Community', description: 'Interactive workshop building a trust and safety response playbook for your community.' },
-    { day: 3, time: '12:00 PM', title: 'Panel: The Next 5 Years of Social', speaker: 'Rivera, Nair, Obi, Lee', room: 'Main Stage', track: 'Keynote', description: 'Where does social networking go from here? A forward-looking conversation with founders and investors.' },
-  ];
-  const batch = db.batch();
-  extraSessions.forEach(s => batch.set(db.collection('sessions').doc(), s));
-  await batch.commit();
-  console.log('Extra sessions added:', extraSessions.length);
+  store('meetups', []);
+  store('chat', []);
+  localStorage.setItem('blobcon_seeded', 'true');
 }
 
 function openProposeMeetup() {
-  openModal(`
-    <div class="modal">
-      <h3>🤝 Propose a Meetup</h3>
-      <form id="meetup-form">
-        <div class="form-group"><label>Your Name</label><input name="proposer" required placeholder="Your name" /></div>
-        <div class="form-group"><label>Participants (names, comma-separated)</label><input name="participants" required placeholder="e.g. Alex, Mia, Sam" /></div>
-        <div class="form-group"><label>Date &amp; Time</label><input name="datetime" required placeholder="e.g. June 13, 2:00 PM" /></div>
-        <div class="form-group"><label>Location or Link</label><input name="location" required placeholder="e.g. Lobby, or https://meet.example.com" /></div>
-        <div class="form-group"><label>Notes (optional)</label><textarea name="notes" placeholder="What&apos;s this meetup about?"></textarea></div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Propose</button>
-        </div>
-      </form>
-    </div>
-  `, async form => {
-    try {
-      await db.collection('meetups').add({
-        proposer: form.proposer.value.trim(),
-        participants: form.participants.value.trim(),
-        datetime: form.datetime.value.trim(),
-        location: form.location.value.trim(),
-        notes: form.notes.value.trim(),
-        status: 'pending'
-      });
-      closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
-    } catch (e) {
-      showToast('Save failed — check Firestore rules');
-      console.error('Propose meetup failed:', e);
-    }
+  openModal(`<div class="modal">
+    <h3>🤝 Propose a Meetup</h3>
+    <form id="meetup-form">
+      <div class="form-group"><label>Your Name</label><input name="proposer" required placeholder="Your name" /></div>
+      <div class="form-group"><label>Participants</label><input name="participants" required placeholder="e.g. Alex, Mia, Sam" /></div>
+      <div class="form-group"><label>Date &amp; Time</label><input name="datetime" required placeholder="e.g. June 13, 2:00 PM" /></div>
+      <div class="form-group"><label>Location or Link</label><input name="location" required placeholder="e.g. Lobby" /></div>
+      <div class="form-group"><label>Notes (optional)</label><textarea name="notes" placeholder="What&apos;s this meetup about?"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Propose</button>
+      </div>
+    </form>
+  </div>`, form => {
+    const meetups = load('meetups');
+    meetups.push({ id: genId(), proposer: form.proposer.value.trim(), participants: form.participants.value.trim(), datetime: form.datetime.value.trim(), location: form.location.value.trim(), notes: form.notes.value.trim(), status: 'pending' });
+    store('meetups', meetups);
+    closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
   });
 }
 
 // ─── Home Screen ─────────────────────────────────────────────────
 async function loadHome() {
-  const snap = await db.collection('convention').doc('config').get();
-  const c = snap.exists ? snap.data() : {};
+  const c = loadObj('config');
   document.getElementById('home-presenter').textContent = c.presenter || '';
   document.getElementById('home-name').textContent = c.name || 'Convention';
   document.getElementById('home-tagline').textContent = c.tagline || '';
@@ -1104,36 +927,17 @@ async function loadHome() {
 }
 
 async function loadStats() {
-  const [sessions, attendees, meetups, booths] = await Promise.all([
-    db.collection('sessions').get(),
-    db.collection('attendees').get(),
-    db.collection('meetups').get(),
-    db.collection('booths').get(),
-  ]);
-  document.getElementById('stat-sessions').textContent = sessions.size + ' sessions';
-  document.getElementById('stat-attendees').textContent = attendees.size + ' registered';
-  document.getElementById('stat-meetups').textContent = meetups.size + ' scheduled';
-  document.getElementById('stat-booths').textContent = booths.size + ' exhibitors';
+  document.getElementById('stat-sessions').textContent = load('sessions').length + ' sessions';
+  document.getElementById('stat-attendees').textContent = load('attendees').length + ' registered';
+  document.getElementById('stat-meetups').textContent = load('meetups').length + ' scheduled';
+  document.getElementById('stat-booths').textContent = load('booths').length + ' exhibitors';
 }
 
-seedDummyData()
-  .then(() => {
-    addExtraSessions().catch(e => console.warn('Extra sessions skipped:', e));
-    loadHome().catch(() => showToast('Failed to load convention info'));
-    loadStats().catch(() => {
-      ['sessions', 'attendees', 'meetups', 'booths'].forEach(k => {
-        const el = document.getElementById('stat-' + k);
-        if (el) el.textContent = '—';
-      });
-    });
-  })
-  .catch(err => {
-    console.error('Seed failed:', err);
-    loadHome().catch(() => showToast('Failed to load convention info'));
-    loadStats().catch(() => {});
-  });
+seedData();
+loadHome();
+loadStats();
 
-console.log('Firebase initialized. App shell ready.');
+console.log('localStorage app ready.');
 </script>
 </body>
 </html>
