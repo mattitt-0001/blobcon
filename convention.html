@@ -283,6 +283,12 @@ function showScreen(id) {
   const el = document.getElementById('screen-' + id);
   if (el) el.classList.add('active');
   window.scrollTo(0, 0);
+  refreshAdminControls();
+  if (id === 'sessions') loadSessions();
+  if (id === 'attendees') loadAttendees();
+  if (id === 'meetups') loadMeetups();
+  if (id === 'booths') loadBooths();
+  if (id === 'chat') initChat();
 }
 
 // ─── Modal helper ─────────────────────────────────────────────────
@@ -302,17 +308,63 @@ function closeModal() {
   document.getElementById('modal-container').innerHTML = '';
 }
 
-// ─── Admin Auth (stub — full implementation in Task 3) ────────────
+// ─── Admin Auth ───────────────────────────────────────────────────
 function promptAdmin() {
-  const pw = prompt('Admin password:');
-  if (pw === ADMIN_PASSWORD) {
-    sessionStorage.setItem('adminMode', 'true');
-    document.getElementById('admin-badge').classList.add('visible');
-    showToast('Admin mode enabled');
-  } else if (pw !== null) {
-    showToast('Wrong password');
-  }
+  if (isAdmin()) { deactivateAdmin(); return; }
+  openModal(`
+    <div class="modal">
+      <h3>🔐 Admin Login</h3>
+      <form id="admin-form">
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" autofocus placeholder="Enter admin password" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Unlock</button>
+        </div>
+      </form>
+    </div>
+  `, form => {
+    const pw = form.password.value;
+    if (pw === ADMIN_PASSWORD) {
+      sessionStorage.setItem('adminMode', 'true');
+      closeModal();
+      refreshAdminControls();
+      showToast('Admin mode enabled');
+    } else {
+      showToast('Wrong password');
+    }
+  });
 }
+
+function deactivateAdmin() {
+  sessionStorage.removeItem('adminMode');
+  refreshAdminControls();
+  showToast('Admin mode disabled');
+}
+
+function refreshAdminControls() {
+  const admin = isAdmin();
+  document.getElementById('admin-badge').classList.toggle('visible', admin);
+  ['btn-add-session', 'btn-add-attendee', 'btn-add-booth'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = admin ? 'inline-flex' : 'none';
+  });
+  const bannerBtn = document.getElementById('btn-edit-banner');
+  if (bannerBtn) bannerBtn.style.display = admin ? 'block' : 'none';
+  // Re-render active section so edit/delete controls appear/disappear
+  if (document.getElementById('screen-sessions').classList.contains('active')) loadSessions();
+  if (document.getElementById('screen-attendees').classList.contains('active')) loadAttendees();
+  if (document.getElementById('screen-booths').classList.contains('active')) loadBooths();
+}
+
+// Stubs — replaced in Tasks 5–9
+function loadSessions() {}
+function loadAttendees() {}
+function loadMeetups() {}
+function loadBooths() {}
+function initChat() {}
 
 // Stub — implemented in Task 7
 function openProposeMeetup() { showToast('Meetup planner coming soon'); }
