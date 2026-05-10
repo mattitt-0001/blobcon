@@ -175,6 +175,17 @@
     .booth-company { font-size: 16px; font-weight: 700; }
     .booth-tagline { font-size: 12px; color: var(--accent); }
     .booth-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 10px; }
+
+    /* Chat */
+    .chat-message { display: flex; flex-direction: column; gap: 2px; }
+    .chat-bubble {
+      background: var(--surface); border-radius: 12px 12px 12px 4px;
+      padding: 10px 14px; max-width: 85%; align-self: flex-start;
+      border: 1px solid var(--border);
+    }
+    .chat-author { font-size: 11px; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
+    .chat-text { font-size: 14px; line-height: 1.4; }
+    .chat-time { font-size: 10px; color: var(--text-muted); }
   </style>
 </head>
 <body>
@@ -734,7 +745,69 @@ async function deleteBooth(id) {
   loadBooths(); loadStats(); showToast('Booth deleted');
 }
 
-function initChat() {}
+// ─── Group Chat ───────────────────────────────────────────────────
+let chatInitialized = false;
+
+function initChat() {
+  if (chatInitialized) return;
+  chatInitialized = true;
+  const chatRef = rtdb.ref('/blobcon2025/chat');
+  chatRef.limitToLast(200).on('value', snap => {
+    const messages = [];
+    snap.forEach(child => messages.push({ id: child.key, ...child.val() }));
+    renderMessages(messages);
+  });
+}
+
+function renderMessages(messages) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  if (messages.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No messages yet. Say hello!</p>';
+    return;
+  }
+  container.innerHTML = messages.map(m => `
+    <div class="chat-message">
+      <div class="chat-author">${escapeHtml(m.author)}</div>
+      <div class="chat-bubble">
+        <div class="chat-text">${escapeHtml(m.text)}</div>
+      </div>
+      <div class="chat-time">${new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+    </div>
+  `).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text) return;
+
+  let author = localStorage.getItem('chatDisplayName');
+  if (!author) {
+    const name = prompt('Enter your display name for the chat:');
+    if (!name || !name.trim()) return;
+    author = name.trim();
+    localStorage.setItem('chatDisplayName', author);
+  }
+
+  input.value = '';
+  await rtdb.ref('/blobcon2025/chat').push({
+    author,
+    text,
+    timestamp: Date.now()
+  });
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 // ─── Seed Data ────────────────────────────────────────────────────
 async function seedDummyData() {
