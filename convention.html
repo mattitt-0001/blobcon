@@ -119,6 +119,25 @@
       z-index: 50; pointer-events: none;
     }
     #admin-badge.visible { display: block; }
+
+    /* Sessions */
+    .track-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 20px; text-transform: uppercase; letter-spacing: .5px;
+    }
+    .track-Keynote { background: #7c3aed22; color: #a78bfa; }
+    .track-Engineering { background: #0ea5e922; color: #38bdf8; }
+    .track-Community { background: #22c55e22; color: #4ade80; }
+    .track-Product { background: #f59e0b22; color: #fbbf24; }
+    .track-Growth { background: #f9731622; color: #fb923c; }
+    .track-AI { background: #ec489922; color: #f472b6; }
+    .day-group { margin-bottom: 24px; }
+    .day-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+    .session-card { margin-bottom: 10px; }
+    .session-card h4 { font-size: 15px; margin-bottom: 4px; }
+    .session-meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; flex-wrap: wrap; }
+    .session-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .admin-row { display: flex; gap: 8px; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -359,8 +378,123 @@ function refreshAdminControls() {
   if (document.getElementById('screen-booths').classList.contains('active')) loadBooths();
 }
 
-// Stubs — replaced in Tasks 5–9
-function loadSessions() {}
+// ─── Sessions ──────────────────────────────────────────────────────
+let allSessions = [];
+
+async function loadSessions() {
+  const container = document.getElementById('sessions-list');
+  if (!container) return;
+  container.innerHTML = '<div class="spinner"></div>';
+  try {
+    const snap = await db.collection('sessions').orderBy('day').orderBy('time').get();
+    allSessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load sessions.</p>';
+    return;
+  }
+
+  if (allSessions.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No sessions yet.</p>';
+    return;
+  }
+
+  const byDay = {};
+  allSessions.forEach(s => {
+    if (!byDay[s.day]) byDay[s.day] = [];
+    byDay[s.day].push(s);
+  });
+
+  container.innerHTML = Object.keys(byDay).sort((a,b) => a-b).map(day => `
+    <div class="day-group">
+      <div class="day-label">Day ${day}</div>
+      ${byDay[day].map(s => `
+        <div class="card session-card">
+          <div class="session-meta">
+            <span>${s.time}</span>
+            <span>📍 ${s.room}</span>
+            <span class="track-badge track-${s.track}">${s.track}</span>
+          </div>
+          <h4>${s.title}</h4>
+          <div style="font-size:13px;color:var(--accent);margin-bottom:6px;">🎤 ${s.speaker}</div>
+          <div class="session-desc">${s.description}</div>
+          ${isAdmin() ? `
+            <div class="admin-row">
+              <button class="btn btn-ghost btn-sm" onclick="openEditSession('${s.id}')">✏️ Edit</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteSession('${s.id}')">🗑 Delete</button>
+            </div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
+function sessionFormHtml(s = {}) {
+  return `
+    <div class="modal">
+      <h3>${s.id ? 'Edit' : 'Add'} Session</h3>
+      <form id="session-form">
+        <div class="form-group"><label>Title</label><input name="title" value="${(s.title || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Speaker</label><input name="speaker" value="${(s.speaker || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Day (1/2/3)</label><input name="day" type="number" min="1" max="3" value="${s.day || 1}" required /></div>
+        <div class="form-group"><label>Time (e.g. 9:00 AM)</label><input name="time" value="${(s.time || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Room</label><input name="room" value="${(s.room || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Track</label>
+          <select name="track">
+            ${['Keynote','Engineering','Community','Product','Growth','AI'].map(t =>
+              `<option value="${t}" ${s.track === t ? 'selected' : ''}>${t}</option>`
+            ).join('')}
+          </select>
+        </div>
+        <div class="form-group"><label>Description</label><textarea name="description">${s.description || ''}</textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>`;
+}
+
+function openAddSession() {
+  openModal(sessionFormHtml(), async form => {
+    const data = {
+      title: form.title.value.trim(),
+      speaker: form.speaker.value.trim(),
+      day: parseInt(form.day.value),
+      time: form.time.value.trim(),
+      room: form.room.value.trim(),
+      track: form.track.value,
+      description: form.description.value.trim()
+    };
+    await db.collection('sessions').add(data);
+    closeModal(); loadSessions(); loadStats(); showToast('Session added');
+  });
+}
+
+function openEditSession(id) {
+  const s = allSessions.find(x => x.id === id);
+  if (!s) return;
+  openModal(sessionFormHtml(s), async form => {
+    const data = {
+      title: form.title.value.trim(),
+      speaker: form.speaker.value.trim(),
+      day: parseInt(form.day.value),
+      time: form.time.value.trim(),
+      room: form.room.value.trim(),
+      track: form.track.value,
+      description: form.description.value.trim()
+    };
+    await db.collection('sessions').doc(id).update(data);
+    closeModal(); loadSessions(); showToast('Session updated');
+  });
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete this session?')) return;
+  await db.collection('sessions').doc(id).delete();
+  loadSessions(); loadStats(); showToast('Session deleted');
+}
+
+// Stubs — replaced in Tasks 6–9
 function loadAttendees() {}
 function loadMeetups() {}
 function loadBooths() {}
