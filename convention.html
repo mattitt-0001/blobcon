@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <title>BlobCon 2025</title>
   <style>
     :root {
@@ -17,7 +19,7 @@
       --green: #22c55e;
       --red: #ef4444;
       --radius: 12px;
-      --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -186,6 +188,54 @@
     .chat-author { font-size: 11px; color: var(--accent); font-weight: 700; margin-bottom: 2px; }
     .chat-text { font-size: 14px; line-height: 1.4; }
     .chat-time { font-size: 10px; color: var(--text-muted); }
+
+/* Visual Polish */
+.screen.active { animation: fadeSlideIn .25s ease; }
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.card {
+  transition: border-color .2s, transform .2s, box-shadow .2s;
+}
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(99,102,241,0.15);
+}
+#home-banner {
+  position: relative;
+}
+#home-banner::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 60%, rgba(15,23,42,0.4) 100%);
+  pointer-events: none;
+}
+.modal {
+  background: rgba(30,41,59,0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(99,102,241,0.3);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
+}
+.btn { transition: opacity .15s, transform .1s, box-shadow .15s; }
+.btn-primary:hover { box-shadow: 0 4px 20px rgba(99,102,241,0.4); }
+.section-header {
+  background: rgba(15,23,42,0.85);
+  backdrop-filter: blur(12px);
+}
+.chat-message { animation: bubbleIn .2s ease; }
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
   </style>
 </head>
 <body>
