@@ -162,6 +162,19 @@
     }
     .status-pending { background: #f59e0b22; color: #fbbf24; }
     .status-confirmed { background: #22c55e22; color: #4ade80; }
+
+    /* Booths */
+    .booth-card { margin-bottom: 14px; }
+    .booth-logo {
+      width: 48px; height: 48px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 800; color: white; flex-shrink: 0;
+    }
+    .booth-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .booth-company { font-size: 16px; font-weight: 700; }
+    .booth-tagline { font-size: 12px; color: var(--accent); }
+    .booth-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -645,7 +658,82 @@ async function deleteMeetup(id) {
   loadMeetups(); loadStats(); showToast('Meetup deleted');
 }
 
-function loadBooths() {}
+// ─── Booths ───────────────────────────────────────────────────────
+let allBooths = [];
+
+async function loadBooths() {
+  const container = document.getElementById('booths-list');
+  if (!container) return;
+  container.innerHTML = '<div class="spinner"></div>';
+  try {
+    const snap = await db.collection('booths').orderBy('company').get();
+    allBooths = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (allBooths.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No booths yet.</p>';
+      return;
+    }
+    container.innerHTML = allBooths.map(b => `
+      <div class="card booth-card">
+        <div class="booth-header">
+          <div class="booth-logo">${b.company.charAt(0)}</div>
+          <div>
+            <div class="booth-company">${b.company}</div>
+            <div class="booth-tagline">${b.tagline}</div>
+          </div>
+        </div>
+        <div class="booth-desc">${b.description}</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <a href="${b.website}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">🌐 Visit Website</a>
+          ${isAdmin() ? `
+            <button class="btn btn-ghost btn-sm" onclick="openEditBooth('${b.id}')">✏️ Edit</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteBooth('${b.id}')">🗑</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load booths.</p>';
+  }
+}
+
+function boothFormHtml(b = {}) {
+  return `
+    <div class="modal">
+      <h3>${b.id ? 'Edit' : 'Add'} Booth</h3>
+      <form id="booth-form">
+        <div class="form-group"><label>Company Name</label><input name="company" value="${(b.company || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Tagline</label><input name="tagline" value="${(b.tagline || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Description</label><textarea name="description">${(b.description || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
+        <div class="form-group"><label>Website URL</label><input name="website" type="url" value="${(b.website || '').replace(/"/g,'&quot;')}" placeholder="https://…" /></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>`;
+}
+
+function openAddBooth() {
+  openModal(boothFormHtml(), async form => {
+    await db.collection('booths').add({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
+    closeModal(); loadBooths(); loadStats(); showToast('Booth added');
+  });
+}
+
+function openEditBooth(id) {
+  const b = allBooths.find(x => x.id === id);
+  if (!b) return;
+  openModal(boothFormHtml(b), async form => {
+    await db.collection('booths').doc(id).update({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() });
+    closeModal(); loadBooths(); showToast('Booth updated');
+  });
+}
+
+async function deleteBooth(id) {
+  if (!confirm('Delete this booth?')) return;
+  await db.collection('booths').doc(id).delete();
+  loadBooths(); loadStats(); showToast('Booth deleted');
+}
+
 function initChat() {}
 
 // ─── Seed Data ────────────────────────────────────────────────────
