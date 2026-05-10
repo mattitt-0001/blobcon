@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BlobCon 2025</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface2: #334155;
+      --border: #334155;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent2: #7c3aed;
+      --green: #22c55e;
+      --red: #ef4444;
+      --radius: 12px;
+      --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    #app { max-width: 480px; margin: 0 auto; min-height: 100vh; position: relative; }
+
+    /* Screens */
+    .screen { display: none; min-height: 100vh; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    /* Utility */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 6px; padding: 10px 18px; border-radius: 8px; border: none;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-danger { background: var(--red); color: white; }
+    .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+    input, textarea, select {
+      background: var(--surface2); border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px; padding: 10px 14px;
+      font-family: var(--font); font-size: 14px; width: 100%;
+      outline: none; transition: border-color .15s;
+    }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+    textarea { resize: vertical; min-height: 80px; }
+
+    label { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+    .form-group { margin-bottom: 14px; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      z-index: 100; align-items: center; justify-content: center; padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--surface); border-radius: var(--radius); padding: 24px;
+      width: 100%; max-width: 400px; border: 1px solid var(--border);
+    }
+    .modal h3 { margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+
+    /* Card */
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      transition: border-color .15s, transform .15s;
+    }
+    .card:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+    /* Toast */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(60px);
+      background: var(--surface2); color: var(--text); padding: 10px 20px;
+      border-radius: 20px; font-size: 13px; z-index: 200;
+      transition: transform .3s; pointer-events: none;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* Spinner */
+    .spinner {
+      width: 32px; height: 32px; border: 3px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      animation: spin .7s linear infinite; margin: 40px auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Section nav */
+    .section-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 16px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg); z-index: 10;
+    }
+    .back-btn {
+      background: none; border: none; color: var(--text-muted);
+      cursor: pointer; font-size: 20px; padding: 4px; line-height: 1;
+    }
+    .back-btn:hover { color: var(--text); }
+    .section-title { font-size: 17px; font-weight: 700; }
+
+    /* Admin badge */
+    #admin-badge {
+      display: none; position: fixed; top: 12px; left: 50%;
+      transform: translateX(-50%); background: var(--accent);
+      color: white; font-size: 10px; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px; letter-spacing: 1px;
+      z-index: 50; pointer-events: none;
+    }
+    #admin-badge.visible { display: block; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Screens injected per task -->
+  <div id="screen-home" class="screen active">
+    <p style="color:var(--text-muted);padding:40px;text-align:center;">Loading…</p>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+<!-- Admin badge -->
+<div id="admin-badge">ADMIN MODE</div>
+<!-- Modal container -->
+<div id="modal-container"></div>
+
+<!-- Firebase SDK v10 (compat mode for simplicity) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<script>
+// ─── Firebase Config ─────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCqyCcs2R2e7AegGjvFAwG98wlamtbHvZY",
+  authDomain: "bard-frontend.firebaseapp.com",
+  projectId: "bard-frontend",
+  storageBucket: "bard-frontend.firebasestorage.app",
+  messagingSenderId: "175205271074",
+  appId: "1:175205271074:web:2b7bd4d34d33bf38e6ec7b",
+  databaseURL: "https://bard-frontend-default-rtdb.firebaseio.com"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const rtdb = firebase.database();
+
+// ─── Globals ──────────────────────────────────────────────────────
+const ADMIN_PASSWORD = '1234321';
+function isAdmin() { return sessionStorage.getItem('adminMode') === 'true'; }
+
+// ─── Toast ────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── Navigation ───────────────────────────────────────────────────
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const el = document.getElementById('screen-' + id);
+  if (el) el.classList.add('active');
+}
+
+// ─── Modal helper ─────────────────────────────────────────────────
+function openModal(html, onSubmit) {
+  const container = document.getElementById('modal-container');
+  container.innerHTML = `<div class="modal-overlay open" id="active-modal">${html}</div>`;
+  if (onSubmit) {
+    const form = container.querySelector('form');
+    if (form) form.addEventListener('submit', e => { e.preventDefault(); onSubmit(form); });
+  }
+  container.querySelector('.modal-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+}
+function closeModal() {
+  document.getElementById('modal-container').innerHTML = '';
+}
+
+console.log('Firebase initialized. App shell ready.');
+</script>
+</body>
+</html>
