@@ -124,9 +124,114 @@
 <body>
 <div id="app">
 
-  <!-- Screens injected per task -->
+  <!-- HOME -->
   <div id="screen-home" class="screen active">
-    <p style="color:var(--text-muted);padding:40px;text-align:center;">Loading…</p>
+    <div id="home-banner" style="
+      background: linear-gradient(135deg, #1e1b4b, #312e81, #4f46e5);
+      padding: 32px 20px 24px; position: relative; flex-shrink: 0;
+    ">
+      <button onclick="promptAdmin()" style="
+        position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.12);
+        border:none;color:white;font-size:12px;padding:6px 12px;border-radius:20px;cursor:pointer;
+      ">🔐 Admin</button>
+      <div id="home-presenter" style="color:rgba(255,255,255,0.55);font-size:11px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;"></div>
+      <div id="home-name" style="color:white;font-size:28px;font-weight:800;margin-bottom:6px;"></div>
+      <div id="home-tagline" style="color:rgba(255,255,255,0.75);font-size:14px;margin-bottom:14px;"></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <span id="home-dates" style="color:rgba(255,255,255,0.65);font-size:12px;"></span>
+        <span id="home-location" style="color:rgba(255,255,255,0.65);font-size:12px;"></span>
+        <span id="home-count" style="color:rgba(255,255,255,0.65);font-size:12px;"></span>
+      </div>
+    </div>
+
+    <div style="padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+      <div class="card" onclick="showScreen('sessions')" style="cursor:pointer">
+        <div style="font-size:28px;margin-bottom:10px;">📅</div>
+        <div style="font-weight:700;margin-bottom:4px;">Sessions</div>
+        <div id="stat-sessions" style="color:var(--text-muted);font-size:12px;">Loading…</div>
+      </div>
+      <div class="card" onclick="showScreen('attendees')" style="cursor:pointer">
+        <div style="font-size:28px;margin-bottom:10px;">👥</div>
+        <div style="font-weight:700;margin-bottom:4px;">Attendees</div>
+        <div id="stat-attendees" style="color:var(--text-muted);font-size:12px;">Loading…</div>
+      </div>
+      <div class="card" onclick="showScreen('meetups')" style="cursor:pointer">
+        <div style="font-size:28px;margin-bottom:10px;">🤝</div>
+        <div style="font-weight:700;margin-bottom:4px;">Meetups</div>
+        <div id="stat-meetups" style="color:var(--text-muted);font-size:12px;">Loading…</div>
+      </div>
+      <div class="card" onclick="showScreen('booths')" style="cursor:pointer">
+        <div style="font-size:28px;margin-bottom:10px;">🏪</div>
+        <div style="font-weight:700;margin-bottom:4px;">Booths</div>
+        <div id="stat-booths" style="color:var(--text-muted);font-size:12px;">Loading…</div>
+      </div>
+      <div class="card" onclick="showScreen('chat')" style="cursor:pointer;grid-column:1/-1">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="font-size:28px;">💬</div>
+          <div>
+            <div style="font-weight:700;margin-bottom:2px;">Group Chat</div>
+            <div style="color:var(--text-muted);font-size:12px;">Live conversation</div>
+          </div>
+          <div style="margin-left:auto;width:10px;height:10px;background:var(--green);border-radius:50%;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SESSION SCHEDULE -->
+  <div id="screen-sessions" class="screen">
+    <div class="section-header">
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <span class="section-title">📅 Sessions</span>
+      <button id="btn-add-session" class="btn btn-primary btn-sm" style="margin-left:auto;display:none" onclick="openAddSession()">+ Add</button>
+    </div>
+    <div id="sessions-list" style="padding:16px"><div class="spinner"></div></div>
+  </div>
+
+  <!-- ATTENDEE DIRECTORY -->
+  <div id="screen-attendees" class="screen">
+    <div class="section-header">
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <span class="section-title">👥 Attendees</span>
+      <button id="btn-add-attendee" class="btn btn-primary btn-sm" style="margin-left:auto;display:none" onclick="openAddAttendee()">+ Add</button>
+    </div>
+    <div style="padding:12px 16px">
+      <input id="attendee-search" type="text" placeholder="Search by name or company…" oninput="filterAttendees()" />
+    </div>
+    <div id="attendees-list" style="padding:0 16px 16px"><div class="spinner"></div></div>
+  </div>
+
+  <!-- MEETUP PLANNER -->
+  <div id="screen-meetups" class="screen">
+    <div class="section-header">
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <span class="section-title">🤝 Meetups</span>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="openProposeMeetup()">+ Propose</button>
+    </div>
+    <div id="meetups-list" style="padding:16px"><div class="spinner"></div></div>
+  </div>
+
+  <!-- VIRTUAL BOOTHS -->
+  <div id="screen-booths" class="screen">
+    <div class="section-header">
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <span class="section-title">🏪 Booths</span>
+      <button id="btn-add-booth" class="btn btn-primary btn-sm" style="margin-left:auto;display:none" onclick="openAddBooth()">+ Add</button>
+    </div>
+    <div id="booths-list" style="padding:16px"><div class="spinner"></div></div>
+  </div>
+
+  <!-- GROUP CHAT -->
+  <div id="screen-chat" class="screen">
+    <div class="section-header">
+      <button class="back-btn" onclick="showScreen('home')">←</button>
+      <span class="section-title">💬 Group Chat</span>
+    </div>
+    <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;"></div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:10px;">
+      <input id="chat-input" type="text" placeholder="Type a message…" onkeydown="if(event.key==='Enter')sendChatMessage()" />
+      <button class="btn btn-primary" onclick="sendChatMessage()">Send</button>
+    </div>
   </div>
 
 </div>
@@ -196,6 +301,34 @@ function openModal(html, onSubmit) {
 function closeModal() {
   document.getElementById('modal-container').innerHTML = '';
 }
+
+// ─── Home Screen ─────────────────────────────────────────────────
+async function loadHome() {
+  const snap = await db.collection('convention').doc('config').get();
+  const c = snap.exists ? snap.data() : {};
+  document.getElementById('home-presenter').textContent = c.presenter || '';
+  document.getElementById('home-name').textContent = c.name || 'Convention';
+  document.getElementById('home-tagline').textContent = c.tagline || '';
+  document.getElementById('home-dates').textContent = c.dates ? '📅 ' + c.dates : '';
+  document.getElementById('home-location').textContent = c.location ? '📍 ' + c.location : '';
+  document.getElementById('home-count').textContent = c.attendeeLabel ? '👥 ' + c.attendeeLabel : '';
+}
+
+async function loadStats() {
+  const [sessions, attendees, meetups, booths] = await Promise.all([
+    db.collection('sessions').get(),
+    db.collection('attendees').get(),
+    db.collection('meetups').get(),
+    db.collection('booths').get(),
+  ]);
+  document.getElementById('stat-sessions').textContent = sessions.size + ' sessions';
+  document.getElementById('stat-attendees').textContent = attendees.size + ' registered';
+  document.getElementById('stat-meetups').textContent = meetups.size + ' scheduled';
+  document.getElementById('stat-booths').textContent = booths.size + ' exhibitors';
+}
+
+loadHome();
+loadStats();
 
 console.log('Firebase initialized. App shell ready.');
 </script>
