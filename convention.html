@@ -152,6 +152,16 @@
     .attendee-name { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
     .attendee-role { font-size: 11px; color: var(--text-muted); }
     .attendee-company { font-size: 12px; color: var(--accent); margin-bottom: 4px; }
+
+    /* Meetups */
+    .meetup-card h4 { font-size: 15px; margin-bottom: 6px; }
+    .meetup-meta { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    .status-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 20px;
+    }
+    .status-pending { background: #f59e0b22; color: #fbbf24; }
+    .status-confirmed { background: #22c55e22; color: #4ade80; }
   </style>
 </head>
 <body>
@@ -592,7 +602,49 @@ async function deleteAttendee(id) {
   loadAttendees(); loadStats(); showToast('Attendee removed');
 }
 
-function loadMeetups() {}
+// ─── Meetups ──────────────────────────────────────────────────────
+async function loadMeetups() {
+  const container = document.getElementById('meetups-list');
+  if (!container) return;
+  container.innerHTML = '<div class="spinner"></div>';
+  try {
+    const snap = await db.collection('meetups').orderBy('datetime').get();
+    const meetups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (meetups.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No meetups yet. Propose one!</p>';
+      return;
+    }
+    container.innerHTML = meetups.map(m => `
+      <div class="card meetup-card" style="margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="status-badge status-${m.status}">${m.status}</span>
+          <span style="font-size:11px;color:var(--text-muted)">by ${m.proposer}</span>
+        </div>
+        <h4>👥 ${m.participants}</h4>
+        <div class="meetup-meta">🕐 ${m.datetime} &nbsp;|&nbsp; 📍 ${m.location}</div>
+        ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${m.notes}</div>` : ''}
+        <div class="admin-row" style="margin-top:10px">
+          ${m.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
+          ${isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load meetups.</p>';
+  }
+}
+
+async function confirmMeetup(id) {
+  await db.collection('meetups').doc(id).update({ status: 'confirmed' });
+  loadMeetups(); showToast('Meetup confirmed!');
+}
+
+async function deleteMeetup(id) {
+  if (!confirm('Delete this meetup?')) return;
+  await db.collection('meetups').doc(id).delete();
+  loadMeetups(); loadStats(); showToast('Meetup deleted');
+}
+
 function loadBooths() {}
 function initChat() {}
 
@@ -653,8 +705,34 @@ async function seedDummyData() {
   console.log('BlobCon 2025 seed data written to Firestore.');
 }
 
-// Stub — implemented in Task 7
-function openProposeMeetup() { showToast('Meetup planner coming soon'); }
+function openProposeMeetup() {
+  openModal(`
+    <div class="modal">
+      <h3>🤝 Propose a Meetup</h3>
+      <form id="meetup-form">
+        <div class="form-group"><label>Your Name</label><input name="proposer" required placeholder="Your name" /></div>
+        <div class="form-group"><label>Participants (names, comma-separated)</label><input name="participants" required placeholder="e.g. Alex, Mia, Sam" /></div>
+        <div class="form-group"><label>Date &amp; Time</label><input name="datetime" required placeholder="e.g. June 13, 2:00 PM" /></div>
+        <div class="form-group"><label>Location or Link</label><input name="location" required placeholder="e.g. Lobby, or https://meet.example.com" /></div>
+        <div class="form-group"><label>Notes (optional)</label><textarea name="notes" placeholder="What&apos;s this meetup about?"></textarea></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Propose</button>
+        </div>
+      </form>
+    </div>
+  `, async form => {
+    await db.collection('meetups').add({
+      proposer: form.proposer.value.trim(),
+      participants: form.participants.value.trim(),
+      datetime: form.datetime.value.trim(),
+      location: form.location.value.trim(),
+      notes: form.notes.value.trim(),
+      status: 'pending'
+    });
+    closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
+  });
+}
 
 // ─── Home Screen ─────────────────────────────────────────────────
 async function loadHome() {
