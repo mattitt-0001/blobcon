@@ -366,6 +366,63 @@ function loadMeetups() {}
 function loadBooths() {}
 function initChat() {}
 
+// ─── Seed Data ────────────────────────────────────────────────────
+async function seedDummyData() {
+  const config = await db.collection('convention').doc('config').get();
+  if (config.exists) return;
+
+  const batch = db.batch();
+
+  batch.set(db.collection('convention').doc('config'), {
+    name: 'BlobCon 2025',
+    tagline: 'The Future of Social Connectivity',
+    presenter: 'BLOBS NETWORK PRESENTS',
+    dates: 'June 12–14, 2025',
+    location: 'San Francisco, CA',
+    attendeeLabel: '342 Attendees'
+  });
+
+  const sessions = [
+    { day: 1, time: '9:00 AM', title: 'Opening Keynote: The Anti-Polarization Stack', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Kicking off BlobCon with a deep dive into how Blobs Network is reimagining social connectivity.' },
+    { day: 1, time: '11:00 AM', title: 'Workshop: Blob Architecture in Practice', speaker: 'Mia Chen', room: 'Workshop A', track: 'Engineering', description: 'Hands-on session covering the technical design of micro-communities and blob federation.' },
+    { day: 1, time: '2:00 PM', title: 'Panel: Building for Trust in Social Networks', speaker: 'Rivera, Chen, & Obi', room: 'Main Stage', track: 'Community', description: 'A candid conversation about fake accounts, moderation, and earning user trust at scale.' },
+    { day: 2, time: '10:00 AM', title: 'Talk: Token Economies & Incentive Design', speaker: 'Sam Obi', room: 'Hall B', track: 'Product', description: 'How token rewards can shift social network behavior from outrage to authentic engagement.' },
+    { day: 2, time: '12:00 PM', title: 'Workshop: Metaverse Integration with Blobs', speaker: 'Priya Nair', room: 'Workshop B', track: 'Engineering', description: 'Build your first 3D blob neighborhood — avatars, spatial audio, and digital swag.' },
+    { day: 2, time: '3:00 PM', title: 'Fireside: Lessons from 0 to 1M Users', speaker: 'Jordan Lee', room: 'Main Stage', track: 'Growth', description: 'Jordan shares unfiltered lessons from launching a social platform in a market dominated by giants.' },
+    { day: 3, time: '10:00 AM', title: 'Talk: AI Moderation at Scale', speaker: 'Fatima Al-Zahra', room: 'Hall B', track: 'AI', description: 'Practical approaches to using LLMs for content moderation without killing organic discussion.' },
+    { day: 3, time: '2:00 PM', title: 'Closing Keynote: Where We Go From Here', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Vision for the next chapter of Blobs Network and the future of decentralized social platforms.' },
+  ];
+  sessions.forEach(s => batch.set(db.collection('sessions').doc(), s));
+
+  const attendees = [
+    { name: 'Alex Rivera', company: 'Blobs Network', role: 'CEO & Co-founder', avatarUrl: '' },
+    { name: 'Mia Chen', company: 'Blobs Network', role: 'Engineering Lead', avatarUrl: '' },
+    { name: 'Sam Obi', company: 'TokenForge', role: 'Product Director', avatarUrl: '' },
+    { name: 'Priya Nair', company: 'MetaLayer', role: 'CTO', avatarUrl: '' },
+    { name: 'Jordan Lee', company: 'Emerge Ventures', role: 'Partner', avatarUrl: '' },
+    { name: 'Fatima Al-Zahra', company: 'SafeNet AI', role: 'Research Lead', avatarUrl: '' },
+    { name: 'Carlos Mendes', company: 'Freelance', role: 'UI/UX Designer', avatarUrl: '' },
+    { name: 'Yuki Tanaka', company: 'Horizon Labs', role: 'Backend Engineer', avatarUrl: '' },
+    { name: 'Dana Park', company: 'Social Good Co', role: 'Head of Trust & Safety', avatarUrl: '' },
+    { name: 'Eli Shapiro', company: 'ProtocolX', role: 'Developer Advocate', avatarUrl: '' },
+    { name: 'Amara Diallo', company: 'CommunityOS', role: 'Founder', avatarUrl: '' },
+    { name: 'Ben Walsh', company: 'Blobs Network', role: 'Growth Manager', avatarUrl: '' },
+  ];
+  attendees.forEach(a => batch.set(db.collection('attendees').doc(), a));
+
+  const booths = [
+    { company: 'TokenForge', tagline: 'Incentivize everything', description: 'Token infrastructure for social platforms — rewards, governance, and digital ownership at scale.', logoUrl: '', website: 'https://example.com' },
+    { company: 'MetaLayer', tagline: 'Your world, your rules', description: '3D virtual space SDK — drop a metaverse into any web app in under an hour.', logoUrl: '', website: 'https://example.com' },
+    { company: 'SafeNet AI', tagline: 'Moderation that gets it right', description: 'AI content moderation API trained on nuanced community guidelines, not just keyword lists.', logoUrl: '', website: 'https://example.com' },
+    { company: 'ProtocolX', tagline: 'Open social infrastructure', description: 'Decentralized identity and social graph protocol — bring your followers anywhere.', logoUrl: '', website: 'https://example.com' },
+    { company: 'CommunityOS', tagline: 'Communities deserve better tools', description: 'The operating system for online communities — analytics, moderation, and member management.', logoUrl: '', website: 'https://example.com' },
+  ];
+  booths.forEach(b => batch.set(db.collection('booths').doc(), b));
+
+  await batch.commit();
+  console.log('BlobCon 2025 seed data written to Firestore.');
+}
+
 // Stub — implemented in Task 7
 function openProposeMeetup() { showToast('Meetup planner coming soon'); }
 
@@ -394,13 +451,21 @@ async function loadStats() {
   document.getElementById('stat-booths').textContent = booths.size + ' exhibitors';
 }
 
-loadHome().catch(() => showToast('Failed to load convention info'));
-loadStats().catch(() => {
-  ['sessions', 'attendees', 'meetups', 'booths'].forEach(k => {
-    const el = document.getElementById('stat-' + k);
-    if (el) el.textContent = '—';
+seedDummyData()
+  .then(() => {
+    loadHome().catch(() => showToast('Failed to load convention info'));
+    loadStats().catch(() => {
+      ['sessions', 'attendees', 'meetups', 'booths'].forEach(k => {
+        const el = document.getElementById('stat-' + k);
+        if (el) el.textContent = '—';
+      });
+    });
+  })
+  .catch(err => {
+    console.error('Seed failed:', err);
+    loadHome().catch(() => showToast('Failed to load convention info'));
+    loadStats().catch(() => {});
   });
-});
 
 console.log('Firebase initialized. App shell ready.');
 </script>
