@@ -64,12 +64,14 @@
     /* Modal */
     .modal-overlay {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7);
-      z-index: 100; align-items: center; justify-content: center; padding: 20px;
+      z-index: 100; align-items: flex-start; justify-content: center; padding: 20px;
+      overflow-y: auto;
     }
     .modal-overlay.open { display: flex; }
     .modal {
       background: var(--surface); border-radius: var(--radius); padding: 24px;
       width: 100%; max-width: 400px; border: 1px solid var(--border);
+      max-height: 90vh; overflow-y: auto;
     }
     .modal h3 { margin-bottom: 16px; }
     .modal-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
@@ -614,8 +616,13 @@ function openAddSession() {
       track: form.track.value,
       description: form.description.value.trim()
     };
-    await db.collection('sessions').add(data);
-    closeModal(); loadSessions(); loadStats(); showToast('Session added');
+    try {
+      await db.collection('sessions').add(data);
+      closeModal(); loadSessions(); loadStats(); showToast('Session added');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Add session failed:', e);
+    }
   });
 }
 
@@ -632,8 +639,13 @@ function openEditSession(id) {
       track: form.track.value,
       description: form.description.value.trim()
     };
-    await db.collection('sessions').doc(id).update(data);
-    closeModal(); loadSessions(); showToast('Session updated');
+    try {
+      await db.collection('sessions').doc(id).update(data);
+      closeModal(); loadSessions(); showToast('Session updated');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Edit session failed:', e);
+    }
   });
 }
 
@@ -707,8 +719,10 @@ function attendeeFormHtml(a = {}) {
 function openAddAttendee() {
   openModal(attendeeFormHtml(), async form => {
     const data = { name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatarUrl: '' };
-    await db.collection('attendees').add(data);
-    closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
+    try {
+      await db.collection('attendees').add(data);
+      closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
+    } catch (e) { showToast('Save failed — check Firestore rules'); console.error(e); }
   });
 }
 
@@ -826,8 +840,10 @@ function boothFormHtml(b = {}) {
 
 function openAddBooth() {
   openModal(boothFormHtml(), async form => {
-    await db.collection('booths').add({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
-    closeModal(); loadBooths(); loadStats(); showToast('Booth added');
+    try {
+      await db.collection('booths').add({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
+      closeModal(); loadBooths(); loadStats(); showToast('Booth added');
+    } catch (e) { showToast('Save failed — check Firestore rules'); console.error(e); }
   });
 }
 
@@ -967,6 +983,23 @@ async function seedDummyData() {
   console.log('BlobCon 2025 seed data written to Firestore.');
 }
 
+async function addExtraSessions() {
+  const existing = await db.collection('sessions').where('day', '==', 1).get();
+  if (existing.size > 3) return; // already added extras
+  const extraSessions = [
+    { day: 1, time: '4:00 PM', title: 'Lightning Talks: Community Builders', speaker: 'Various', room: 'Hall B', track: 'Community', description: 'Five 5-minute talks from community organizers sharing what actually works when building online spaces.' },
+    { day: 2, time: '9:00 AM', title: 'Breakfast Keynote: Decentralized Identity', speaker: 'Eli Shapiro', room: 'Main Stage', track: 'Engineering', description: 'Why your social graph should belong to you — a technical walkthrough of portable identity protocols.' },
+    { day: 2, time: '1:00 PM', title: 'Workshop: Designing for Diverse Communities', speaker: 'Carlos Mendes', room: 'Workshop A', track: 'Community', description: 'Hands-on UX workshop focused on making social features that work across cultures, languages, and contexts.' },
+    { day: 2, time: '4:30 PM', title: 'Talk: From Virality to Sustainability', speaker: 'Dana Park', room: 'Hall B', track: 'Growth', description: 'Why chasing viral growth hurts community health — and what sustainable growth actually looks like.' },
+    { day: 3, time: '9:00 AM', title: 'Morning Workshop: Trust & Safety Playbook', speaker: 'Dana Park & Fatima Al-Zahra', room: 'Workshop B', track: 'Community', description: 'Interactive workshop building a trust and safety response playbook for your community.' },
+    { day: 3, time: '12:00 PM', title: 'Panel: The Next 5 Years of Social', speaker: 'Rivera, Nair, Obi, Lee', room: 'Main Stage', track: 'Keynote', description: 'Where does social networking go from here? A forward-looking conversation with founders and investors.' },
+  ];
+  const batch = db.batch();
+  extraSessions.forEach(s => batch.set(db.collection('sessions').doc(), s));
+  await batch.commit();
+  console.log('Extra sessions added:', extraSessions.length);
+}
+
 function openProposeMeetup() {
   openModal(`
     <div class="modal">
@@ -1023,6 +1056,7 @@ async function loadStats() {
 
 seedDummyData()
   .then(() => {
+    addExtraSessions().catch(e => console.warn('Extra sessions skipped:', e));
     loadHome().catch(() => showToast('Failed to load convention info'));
     loadStats().catch(() => {
       ['sessions', 'attendees', 'meetups', 'booths'].forEach(k => {
