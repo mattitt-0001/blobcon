@@ -455,6 +455,7 @@ function promptAdmin() {
       sessionStorage.setItem('adminMode', 'true');
       closeModal();
       refreshAdminControls();
+      reloadActiveSection();
       showToast('Admin mode enabled');
     } else {
       showToast('Wrong password');
@@ -465,6 +466,7 @@ function promptAdmin() {
 function deactivateAdmin() {
   sessionStorage.removeItem('adminMode');
   refreshAdminControls();
+  reloadActiveSection();
   showToast('Admin mode disabled');
 }
 
@@ -477,26 +479,37 @@ function refreshAdminControls() {
   });
   const bannerBtn = document.getElementById('btn-edit-banner');
   if (bannerBtn) bannerBtn.style.display = admin ? 'block' : 'none';
-  // Re-render active section so edit/delete controls appear/disappear
+}
+
+// Re-render the currently-active section so admin-only edit/delete
+// controls appear/disappear after toggling admin mode. Called only
+// from admin auth flows, NOT from showScreen (which already lazy-loads).
+function reloadActiveSection() {
   if (document.getElementById('screen-sessions').classList.contains('active')) loadSessions();
   if (document.getElementById('screen-attendees').classList.contains('active')) loadAttendees();
   if (document.getElementById('screen-booths').classList.contains('active')) loadBooths();
+  if (document.getElementById('screen-meetups').classList.contains('active')) loadMeetups();
 }
 
 // ─── Edit Banner ─────────────────────────────────────────────────
 async function openEditBanner() {
-  const snap = await db.collection('convention').doc('config').get();
-  const c = snap.exists ? snap.data() : {};
+  let c = {};
+  try {
+    const snap = await db.collection('convention').doc('config').get();
+    c = snap.exists ? snap.data() : {};
+  } catch (e) {
+    console.error('Load config failed:', e);
+  }
   openModal(`
     <div class="modal">
       <h3>✏️ Edit Convention Details</h3>
       <form id="banner-form">
-        <div class="form-group"><label>Convention Name</label><input name="name" value="${(c.name || '').replace(/"/g,'&quot;')}" required /></div>
-        <div class="form-group"><label>Tagline</label><input name="tagline" value="${(c.tagline || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Presenter Line</label><input name="presenter" value="${(c.presenter || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Dates</label><input name="dates" value="${(c.dates || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Location</label><input name="location" value="${(c.location || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Attendee Label (e.g. "342 Attendees")</label><input name="attendeeLabel" value="${(c.attendeeLabel || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Convention Name</label><input name="name" value="${escapeAttr(c.name)}" required /></div>
+        <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(c.tagline)}" /></div>
+        <div class="form-group"><label>Presenter Line</label><input name="presenter" value="${escapeAttr(c.presenter)}" /></div>
+        <div class="form-group"><label>Dates</label><input name="dates" value="${escapeAttr(c.dates)}" /></div>
+        <div class="form-group"><label>Location</label><input name="location" value="${escapeAttr(c.location)}" /></div>
+        <div class="form-group"><label>Attendee Label (e.g. "342 Attendees")</label><input name="attendeeLabel" value="${escapeAttr(c.attendeeLabel)}" /></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -504,15 +517,20 @@ async function openEditBanner() {
       </form>
     </div>
   `, async form => {
-    await db.collection('convention').doc('config').set({
-      name: form.name.value.trim(),
-      tagline: form.tagline.value.trim(),
-      presenter: form.presenter.value.trim(),
-      dates: form.dates.value.trim(),
-      location: form.location.value.trim(),
-      attendeeLabel: form.attendeeLabel.value.trim()
-    });
-    closeModal(); loadHome(); showToast('Convention details updated');
+    try {
+      await db.collection('convention').doc('config').set({
+        name: form.name.value.trim(),
+        tagline: form.tagline.value.trim(),
+        presenter: form.presenter.value.trim(),
+        dates: form.dates.value.trim(),
+        location: form.location.value.trim(),
+        attendeeLabel: form.attendeeLabel.value.trim()
+      });
+      closeModal(); loadHome(); showToast('Convention details updated');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Save banner failed:', e);
+    }
   });
 }
 
@@ -584,11 +602,11 @@ function sessionFormHtml(s = {}) {
     <div class="modal">
       <h3>${s.id ? 'Edit' : 'Add'} Session</h3>
       <form id="session-form">
-        <div class="form-group"><label>Title</label><input name="title" value="${(s.title || '').replace(/"/g,'&quot;')}" required /></div>
-        <div class="form-group"><label>Speaker</label><input name="speaker" value="${(s.speaker || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Title</label><input name="title" value="${escapeAttr(s.title)}" required /></div>
+        <div class="form-group"><label>Speaker</label><input name="speaker" value="${escapeAttr(s.speaker)}" required /></div>
         <div class="form-group"><label>Day (1/2/3)</label><input name="day" type="number" min="1" max="3" value="${s.day || 1}" required /></div>
-        <div class="form-group"><label>Time (e.g. 9:00 AM)</label><input name="time" value="${(s.time || '').replace(/"/g,'&quot;')}" required /></div>
-        <div class="form-group"><label>Room</label><input name="room" value="${(s.room || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Time (e.g. 9:00 AM)</label><input name="time" value="${escapeAttr(s.time)}" required /></div>
+        <div class="form-group"><label>Room</label><input name="room" value="${escapeAttr(s.room)}" /></div>
         <div class="form-group"><label>Track</label>
           <select name="track">
             ${['Keynote','Engineering','Community','Product','Growth','AI'].map(t =>
@@ -596,7 +614,7 @@ function sessionFormHtml(s = {}) {
             ).join('')}
           </select>
         </div>
-        <div class="form-group"><label>Description</label><textarea name="description">${(s.description || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
+        <div class="form-group"><label>Description</label><textarea name="description">${escapeHtml(s.description)}</textarea></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -651,8 +669,13 @@ function openEditSession(id) {
 
 async function deleteSession(id) {
   if (!confirm('Delete this session?')) return;
-  await db.collection('sessions').doc(id).delete();
-  loadSessions(); loadStats(); showToast('Session deleted');
+  try {
+    await db.collection('sessions').doc(id).delete();
+    loadSessions(); loadStats(); showToast('Session deleted');
+  } catch (e) {
+    showToast('Delete failed — check Firestore rules');
+    console.error('Delete session failed:', e);
+  }
 }
 
 // ─── Attendees ────────────────────────────────────────────────────
@@ -680,7 +703,7 @@ function renderAttendees(list) {
   }
   container.innerHTML = `<div class="attendees-grid">${list.map(a => `
     <div class="card attendee-card">
-      <div class="avatar">${escapeHtml(a.name.charAt(0))}</div>
+      <div class="avatar">${escapeHtml((a.name || '?').charAt(0))}</div>
       <div class="attendee-name">${escapeHtml(a.name)}</div>
       <div class="attendee-company">${escapeHtml(a.company)}</div>
       <div class="attendee-role">${escapeHtml(a.role)}</div>
@@ -696,7 +719,7 @@ function renderAttendees(list) {
 function filterAttendees() {
   const q = document.getElementById('attendee-search').value.toLowerCase();
   renderAttendees(allAttendees.filter(a =>
-    a.name.toLowerCase().includes(q) || (a.company || '').toLowerCase().includes(q)
+    (a.name || '').toLowerCase().includes(q) || (a.company || '').toLowerCase().includes(q)
   ));
 }
 
@@ -705,9 +728,9 @@ function attendeeFormHtml(a = {}) {
     <div class="modal">
       <h3>${a.id ? 'Edit' : 'Add'} Attendee</h3>
       <form id="attendee-form">
-        <div class="form-group"><label>Name</label><input name="name" value="${(a.name || '').replace(/"/g,'&quot;')}" required /></div>
-        <div class="form-group"><label>Company</label><input name="company" value="${(a.company || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Role</label><input name="role" value="${(a.role || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Name</label><input name="name" value="${escapeAttr(a.name)}" required /></div>
+        <div class="form-group"><label>Company</label><input name="company" value="${escapeAttr(a.company)}" /></div>
+        <div class="form-group"><label>Role</label><input name="role" value="${escapeAttr(a.role)}" /></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -730,15 +753,25 @@ function openEditAttendee(id) {
   const a = allAttendees.find(x => x.id === id);
   if (!a) return;
   openModal(attendeeFormHtml(a), async form => {
-    await db.collection('attendees').doc(id).update({ name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() });
-    closeModal(); loadAttendees(); showToast('Attendee updated');
+    try {
+      await db.collection('attendees').doc(id).update({ name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() });
+      closeModal(); loadAttendees(); showToast('Attendee updated');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Edit attendee failed:', e);
+    }
   });
 }
 
 async function deleteAttendee(id) {
   if (!confirm('Remove this attendee?')) return;
-  await db.collection('attendees').doc(id).delete();
-  loadAttendees(); loadStats(); showToast('Attendee removed');
+  try {
+    await db.collection('attendees').doc(id).delete();
+    loadAttendees(); loadStats(); showToast('Attendee removed');
+  } catch (e) {
+    showToast('Delete failed — check Firestore rules');
+    console.error('Delete attendee failed:', e);
+  }
 }
 
 // ─── Meetups ──────────────────────────────────────────────────────
@@ -762,10 +795,11 @@ async function loadMeetups() {
         <h4>👥 ${escapeHtml(m.participants)}</h4>
         <div class="meetup-meta">🕐 ${escapeHtml(m.datetime)} &nbsp;|&nbsp; 📍 ${escapeHtml(m.location)}</div>
         ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${escapeHtml(m.notes)}</div>` : ''}
-        <div class="admin-row" style="margin-top:10px">
-          ${m.status === 'pending' && isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
-          ${isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>` : ''}
-        </div>
+        ${isAdmin() ? `
+          <div class="admin-row" style="margin-top:10px">
+            ${m.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
+            <button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>
+          </div>` : ''}
       </div>
     `).join('');
   } catch (e) {
@@ -774,14 +808,24 @@ async function loadMeetups() {
 }
 
 async function confirmMeetup(id) {
-  await db.collection('meetups').doc(id).update({ status: 'confirmed' });
-  loadMeetups(); showToast('Meetup confirmed!');
+  try {
+    await db.collection('meetups').doc(id).update({ status: 'confirmed' });
+    loadMeetups(); showToast('Meetup confirmed!');
+  } catch (e) {
+    showToast('Confirm failed — check Firestore rules');
+    console.error('Confirm meetup failed:', e);
+  }
 }
 
 async function deleteMeetup(id) {
   if (!confirm('Delete this meetup?')) return;
-  await db.collection('meetups').doc(id).delete();
-  loadMeetups(); loadStats(); showToast('Meetup deleted');
+  try {
+    await db.collection('meetups').doc(id).delete();
+    loadMeetups(); loadStats(); showToast('Meetup deleted');
+  } catch (e) {
+    showToast('Delete failed — check Firestore rules');
+    console.error('Delete meetup failed:', e);
+  }
 }
 
 // ─── Booths ───────────────────────────────────────────────────────
@@ -801,7 +845,7 @@ async function loadBooths() {
     container.innerHTML = allBooths.map(b => `
       <div class="card booth-card">
         <div class="booth-header">
-          <div class="booth-logo">${escapeHtml(b.company.charAt(0))}</div>
+          <div class="booth-logo">${escapeHtml((b.company || '?').charAt(0))}</div>
           <div>
             <div class="booth-company">${escapeHtml(b.company)}</div>
             <div class="booth-tagline">${escapeHtml(b.tagline)}</div>
@@ -826,10 +870,10 @@ function boothFormHtml(b = {}) {
     <div class="modal">
       <h3>${b.id ? 'Edit' : 'Add'} Booth</h3>
       <form id="booth-form">
-        <div class="form-group"><label>Company Name</label><input name="company" value="${(b.company || '').replace(/"/g,'&quot;')}" required /></div>
-        <div class="form-group"><label>Tagline</label><input name="tagline" value="${(b.tagline || '').replace(/"/g,'&quot;')}" /></div>
-        <div class="form-group"><label>Description</label><textarea name="description">${(b.description || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
-        <div class="form-group"><label>Website URL</label><input name="website" type="url" value="${(b.website || '').replace(/"/g,'&quot;')}" placeholder="https://…" /></div>
+        <div class="form-group"><label>Company Name</label><input name="company" value="${escapeAttr(b.company)}" required /></div>
+        <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(b.tagline)}" /></div>
+        <div class="form-group"><label>Description</label><textarea name="description">${escapeHtml(b.description)}</textarea></div>
+        <div class="form-group"><label>Website URL</label><input name="website" type="url" value="${escapeAttr(b.website)}" placeholder="https://…" /></div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save</button>
@@ -851,15 +895,25 @@ function openEditBooth(id) {
   const b = allBooths.find(x => x.id === id);
   if (!b) return;
   openModal(boothFormHtml(b), async form => {
-    await db.collection('booths').doc(id).update({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() });
-    closeModal(); loadBooths(); showToast('Booth updated');
+    try {
+      await db.collection('booths').doc(id).update({ company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() });
+      closeModal(); loadBooths(); showToast('Booth updated');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Edit booth failed:', e);
+    }
   });
 }
 
 async function deleteBooth(id) {
   if (!confirm('Delete this booth?')) return;
-  await db.collection('booths').doc(id).delete();
-  loadBooths(); loadStats(); showToast('Booth deleted');
+  try {
+    await db.collection('booths').doc(id).delete();
+    loadBooths(); loadStats(); showToast('Booth deleted');
+  } catch (e) {
+    showToast('Delete failed — check Firestore rules');
+    console.error('Delete booth failed:', e);
+  }
 }
 
 // ─── Group Chat ───────────────────────────────────────────────────
@@ -918,13 +972,16 @@ async function sendChatMessage() {
 }
 
 function escapeHtml(str) {
-  if (!str) return '';
+  if (str === null || str === undefined) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+// For values inserted into HTML attribute values via template strings.
+// Same as escapeHtml — kept as alias for clarity at call sites.
+const escapeAttr = escapeHtml;
 
 // ─── Seed Data ────────────────────────────────────────────────────
 async function seedDummyData() {
@@ -1017,15 +1074,20 @@ function openProposeMeetup() {
       </form>
     </div>
   `, async form => {
-    await db.collection('meetups').add({
-      proposer: form.proposer.value.trim(),
-      participants: form.participants.value.trim(),
-      datetime: form.datetime.value.trim(),
-      location: form.location.value.trim(),
-      notes: form.notes.value.trim(),
-      status: 'pending'
-    });
-    closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
+    try {
+      await db.collection('meetups').add({
+        proposer: form.proposer.value.trim(),
+        participants: form.participants.value.trim(),
+        datetime: form.datetime.value.trim(),
+        location: form.location.value.trim(),
+        notes: form.notes.value.trim(),
+        status: 'pending'
+      });
+      closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
+    } catch (e) {
+      showToast('Save failed — check Firestore rules');
+      console.error('Propose meetup failed:', e);
+    }
   });
 }
 
