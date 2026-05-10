@@ -522,8 +522,21 @@ async function loadSessions() {
   if (!container) return;
   container.innerHTML = '<div class="spinner"></div>';
   try {
-    const snap = await db.collection('sessions').orderBy('day').orderBy('time').get();
+    const snap = await db.collection('sessions').orderBy('day').get();
     allSessions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sort by day, then by time converted to minutes for correct AM/PM ordering
+    allSessions.sort((a, b) => {
+      if (a.day !== b.day) return a.day - b.day;
+      const toMin = t => {
+        const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(t || '');
+        if (!m) return 0;
+        let h = parseInt(m[1]); const min = parseInt(m[2]); const ap = m[3].toUpperCase();
+        if (ap === 'PM' && h !== 12) h += 12;
+        if (ap === 'AM' && h === 12) h = 0;
+        return h * 60 + min;
+      };
+      return toMin(a.time) - toMin(b.time);
+    });
   } catch (e) {
     container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load sessions.</p>';
     return;
@@ -546,13 +559,13 @@ async function loadSessions() {
       ${byDay[day].map(s => `
         <div class="card session-card">
           <div class="session-meta">
-            <span>${s.time}</span>
-            <span>📍 ${s.room}</span>
-            <span class="track-badge track-${s.track}">${s.track}</span>
+            <span>${escapeHtml(s.time)}</span>
+            <span>📍 ${escapeHtml(s.room)}</span>
+            <span class="track-badge track-${escapeHtml(s.track)}">${escapeHtml(s.track)}</span>
           </div>
-          <h4>${s.title}</h4>
-          <div style="font-size:13px;color:var(--accent);margin-bottom:6px;">🎤 ${s.speaker}</div>
-          <div class="session-desc">${s.description}</div>
+          <h4>${escapeHtml(s.title)}</h4>
+          <div style="font-size:13px;color:var(--accent);margin-bottom:6px;">🎤 ${escapeHtml(s.speaker)}</div>
+          <div class="session-desc">${escapeHtml(s.description)}</div>
           ${isAdmin() ? `
             <div class="admin-row">
               <button class="btn btn-ghost btn-sm" onclick="openEditSession('${s.id}')">✏️ Edit</button>
@@ -655,10 +668,10 @@ function renderAttendees(list) {
   }
   container.innerHTML = `<div class="attendees-grid">${list.map(a => `
     <div class="card attendee-card">
-      <div class="avatar">${a.name.charAt(0)}</div>
-      <div class="attendee-name">${a.name}</div>
-      <div class="attendee-company">${a.company}</div>
-      <div class="attendee-role">${a.role}</div>
+      <div class="avatar">${escapeHtml(a.name.charAt(0))}</div>
+      <div class="attendee-name">${escapeHtml(a.name)}</div>
+      <div class="attendee-company">${escapeHtml(a.company)}</div>
+      <div class="attendee-role">${escapeHtml(a.role)}</div>
       ${isAdmin() ? `
         <div class="admin-row" style="justify-content:center;margin-top:8px">
           <button class="btn btn-ghost btn-sm" onclick="openEditAttendee('${a.id}')">✏️</button>
@@ -729,14 +742,14 @@ async function loadMeetups() {
     container.innerHTML = meetups.map(m => `
       <div class="card meetup-card" style="margin-bottom:12px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-          <span class="status-badge status-${m.status}">${m.status}</span>
-          <span style="font-size:11px;color:var(--text-muted)">by ${m.proposer}</span>
+          <span class="status-badge status-${escapeHtml(m.status)}">${escapeHtml(m.status)}</span>
+          <span style="font-size:11px;color:var(--text-muted)">by ${escapeHtml(m.proposer)}</span>
         </div>
-        <h4>👥 ${m.participants}</h4>
-        <div class="meetup-meta">🕐 ${m.datetime} &nbsp;|&nbsp; 📍 ${m.location}</div>
-        ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${m.notes}</div>` : ''}
+        <h4>👥 ${escapeHtml(m.participants)}</h4>
+        <div class="meetup-meta">🕐 ${escapeHtml(m.datetime)} &nbsp;|&nbsp; 📍 ${escapeHtml(m.location)}</div>
+        ${m.notes ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">${escapeHtml(m.notes)}</div>` : ''}
         <div class="admin-row" style="margin-top:10px">
-          ${m.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
+          ${m.status === 'pending' && isAdmin() ? `<button class="btn btn-primary btn-sm" onclick="confirmMeetup('${m.id}')">✓ Confirm</button>` : ''}
           ${isAdmin() ? `<button class="btn btn-danger btn-sm" onclick="deleteMeetup('${m.id}')">🗑 Delete</button>` : ''}
         </div>
       </div>
@@ -774,15 +787,15 @@ async function loadBooths() {
     container.innerHTML = allBooths.map(b => `
       <div class="card booth-card">
         <div class="booth-header">
-          <div class="booth-logo">${b.company.charAt(0)}</div>
+          <div class="booth-logo">${escapeHtml(b.company.charAt(0))}</div>
           <div>
-            <div class="booth-company">${b.company}</div>
-            <div class="booth-tagline">${b.tagline}</div>
+            <div class="booth-company">${escapeHtml(b.company)}</div>
+            <div class="booth-tagline">${escapeHtml(b.tagline)}</div>
           </div>
         </div>
-        <div class="booth-desc">${b.description}</div>
+        <div class="booth-desc">${escapeHtml(b.description)}</div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <a href="${b.website}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">🌐 Visit Website</a>
+          ${/^https?:\/\//i.test(b.website) ? `<a href="${escapeHtml(b.website)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">🌐 Visit Website</a>` : ''}
           ${isAdmin() ? `
             <button class="btn btn-ghost btn-sm" onclick="openEditBooth('${b.id}')">✏️ Edit</button>
             <button class="btn btn-danger btn-sm" onclick="deleteBooth('${b.id}')">🗑</button>` : ''}
