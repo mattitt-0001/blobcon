@@ -138,6 +138,20 @@
     .session-meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; flex-wrap: wrap; }
     .session-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
     .admin-row { display: flex; gap: 8px; margin-top: 10px; }
+
+    /* Attendees */
+    .attendees-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .attendee-card { text-align: center; }
+    .avatar {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: 700; color: white;
+      margin: 0 auto 10px;
+    }
+    .attendee-name { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+    .attendee-role { font-size: 11px; color: var(--text-muted); }
+    .attendee-company { font-size: 12px; color: var(--accent); margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -494,8 +508,90 @@ async function deleteSession(id) {
   loadSessions(); loadStats(); showToast('Session deleted');
 }
 
-// Stubs — replaced in Tasks 6–9
-function loadAttendees() {}
+// ─── Attendees ────────────────────────────────────────────────────
+let allAttendees = [];
+
+async function loadAttendees() {
+  const container = document.getElementById('attendees-list');
+  if (!container) return;
+  container.innerHTML = '<div class="spinner"></div>';
+  try {
+    const snap = await db.collection('attendees').orderBy('name').get();
+    allAttendees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderAttendees(allAttendees);
+  } catch (e) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">Failed to load attendees.</p>';
+  }
+}
+
+function renderAttendees(list) {
+  const container = document.getElementById('attendees-list');
+  if (!container) return;
+  if (list.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No attendees found.</p>';
+    return;
+  }
+  container.innerHTML = `<div class="attendees-grid">${list.map(a => `
+    <div class="card attendee-card">
+      <div class="avatar">${a.name.charAt(0)}</div>
+      <div class="attendee-name">${a.name}</div>
+      <div class="attendee-company">${a.company}</div>
+      <div class="attendee-role">${a.role}</div>
+      ${isAdmin() ? `
+        <div class="admin-row" style="justify-content:center;margin-top:8px">
+          <button class="btn btn-ghost btn-sm" onclick="openEditAttendee('${a.id}')">✏️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteAttendee('${a.id}')">🗑</button>
+        </div>` : ''}
+    </div>
+  `).join('')}</div>`;
+}
+
+function filterAttendees() {
+  const q = document.getElementById('attendee-search').value.toLowerCase();
+  renderAttendees(allAttendees.filter(a =>
+    a.name.toLowerCase().includes(q) || (a.company || '').toLowerCase().includes(q)
+  ));
+}
+
+function attendeeFormHtml(a = {}) {
+  return `
+    <div class="modal">
+      <h3>${a.id ? 'Edit' : 'Add'} Attendee</h3>
+      <form id="attendee-form">
+        <div class="form-group"><label>Name</label><input name="name" value="${(a.name || '').replace(/"/g,'&quot;')}" required /></div>
+        <div class="form-group"><label>Company</label><input name="company" value="${(a.company || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="form-group"><label>Role</label><input name="role" value="${(a.role || '').replace(/"/g,'&quot;')}" /></div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>`;
+}
+
+function openAddAttendee() {
+  openModal(attendeeFormHtml(), async form => {
+    const data = { name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatarUrl: '' };
+    await db.collection('attendees').add(data);
+    closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
+  });
+}
+
+function openEditAttendee(id) {
+  const a = allAttendees.find(x => x.id === id);
+  if (!a) return;
+  openModal(attendeeFormHtml(a), async form => {
+    await db.collection('attendees').doc(id).update({ name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() });
+    closeModal(); loadAttendees(); showToast('Attendee updated');
+  });
+}
+
+async function deleteAttendee(id) {
+  if (!confirm('Remove this attendee?')) return;
+  await db.collection('attendees').doc(id).delete();
+  loadAttendees(); loadStats(); showToast('Attendee removed');
+}
+
 function loadMeetups() {}
 function loadBooths() {}
 function initChat() {}
