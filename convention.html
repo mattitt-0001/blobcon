@@ -369,23 +369,56 @@ input:focus, textarea:focus, select:focus {
 
 <script>
 
-// ─── Storage Helpers ──────────────────────────────────────────────
-function store(key, data) {
-  localStorage.setItem('blobcon_' + key, JSON.stringify(data));
+// ─── Supabase ─────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://gnrcebzljstaulwlkubu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducmNlYnpsanN0YXVsd2xrdWJ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0ODc1NzAsImV4cCI6MjA5NDA2MzU3MH0.y9KWyDkI4GL0bfjx0yzOrOKRZ-dPy9RUrB18SKVYmGw';
+const SB = {
+  'apikey': SUPABASE_KEY,
+  'Authorization': 'Bearer ' + SUPABASE_KEY,
+  'Content-Type': 'application/json',
+  'Prefer': 'return=representation'
+};
+
+async function dbGet(table, qs = '') {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*${qs}`, { headers: SB });
+  if (!r.ok) { console.error('dbGet', table, await r.text()); return []; }
+  return r.json();
 }
-function load(key) {
-  try { return JSON.parse(localStorage.getItem('blobcon_' + key)) || []; } catch { return []; }
+async function dbInsert(table, data) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, { method: 'POST', headers: SB, body: JSON.stringify(data) });
+  if (!r.ok) { const t = await r.text(); throw new Error(t); }
+  return r.json();
 }
-function loadObj(key) {
-  try { return JSON.parse(localStorage.getItem('blobcon_' + key)) || {}; } catch { return {}; }
+async function dbPatch(table, id, data) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, { method: 'PATCH', headers: SB, body: JSON.stringify(data) });
+  if (!r.ok) { const t = await r.text(); throw new Error(t); }
+  return r.json();
 }
-function genId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+async function dbDelete(table, id) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE', headers: SB });
+  if (!r.ok) { const t = await r.text(); throw new Error(t); }
+}
+async function dbUpsert(table, data) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: { ...SB, 'Prefer': 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify(data)
+  });
+  if (!r.ok) { const t = await r.text(); throw new Error(t); }
+  return r.json();
 }
 
 // ─── Globals ──────────────────────────────────────────────────────
 const ADMIN_PASSWORD = '1234321';
 function isAdmin() { return sessionStorage.getItem('adminMode') === 'true'; }
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+// ─── XSS helpers ─────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+const escapeAttr = escapeHtml;
 
 // ─── Toast ────────────────────────────────────────────────────────
 let _toastTimer;
@@ -411,22 +444,19 @@ function showScreen(id) {
   if (id === 'chat') initChat();
 }
 
-// ─── Modal helper ─────────────────────────────────────────────────
+// ─── Modal ────────────────────────────────────────────────────────
 function openModal(html, onSubmit) {
   const container = document.getElementById('modal-container');
-  container.innerHTML = `<div class="modal-overlay open" id="active-modal">${html}</div>`;
+  container.innerHTML = `<div class="modal-overlay open">${html}</div>`;
   if (onSubmit) {
     const form = container.querySelector('form');
     if (form) form.addEventListener('submit', e => { e.preventDefault(); onSubmit(form); });
-    else console.warn('openModal: onSubmit provided but no <form> found in modal HTML');
   }
   container.querySelector('.modal-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeModal();
   });
 }
-function closeModal() {
-  document.getElementById('modal-container').innerHTML = '';
-}
+function closeModal() { document.getElementById('modal-container').innerHTML = ''; }
 
 // ─── Admin Auth ───────────────────────────────────────────────────
 function promptAdmin() {
@@ -446,12 +476,9 @@ function promptAdmin() {
       </form>
     </div>
   `, form => {
-    const pw = form.password.value;
-    if (pw === ADMIN_PASSWORD) {
+    if (form.password.value === ADMIN_PASSWORD) {
       sessionStorage.setItem('adminMode', 'true');
-      closeModal();
-      refreshAdminControls();
-      reloadActiveSection();
+      closeModal(); refreshAdminControls(); reloadActiveSection();
       showToast('Admin mode enabled');
     } else {
       showToast('Wrong password');
@@ -461,25 +488,21 @@ function promptAdmin() {
 
 function deactivateAdmin() {
   sessionStorage.removeItem('adminMode');
-  refreshAdminControls();
-  reloadActiveSection();
+  refreshAdminControls(); reloadActiveSection();
   showToast('Admin mode disabled');
 }
 
 function refreshAdminControls() {
   const admin = isAdmin();
   document.getElementById('admin-badge').classList.toggle('visible', admin);
-  ['btn-add-session', 'btn-add-attendee', 'btn-add-booth'].forEach(id => {
+  ['btn-add-session','btn-add-attendee','btn-add-booth'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = admin ? 'inline-flex' : 'none';
   });
-  const bannerBtn = document.getElementById('btn-edit-banner');
-  if (bannerBtn) bannerBtn.style.display = admin ? 'block' : 'none';
+  const b = document.getElementById('btn-edit-banner');
+  if (b) b.style.display = admin ? 'block' : 'none';
 }
 
-// Re-render the currently-active section so admin-only edit/delete
-// controls appear/disappear after toggling admin mode. Called only
-// from admin auth flows, NOT from showScreen (which already lazy-loads).
 function reloadActiveSection() {
   if (document.getElementById('screen-sessions').classList.contains('active')) loadSessions();
   if (document.getElementById('screen-attendees').classList.contains('active')) loadAttendees();
@@ -487,9 +510,21 @@ function reloadActiveSection() {
   if (document.getElementById('screen-meetups').classList.contains('active')) loadMeetups();
 }
 
-// ─── Edit Banner ─────────────────────────────────────────────────
+// ─── Home Banner ─────────────────────────────────────────────────
+async function loadHome() {
+  const rows = await dbGet('config', '&key=eq.convention');
+  const c = rows[0]?.value || {};
+  document.getElementById('home-presenter').textContent = c.presenter || '';
+  document.getElementById('home-name').textContent = c.name || 'Convention';
+  document.getElementById('home-tagline').textContent = c.tagline || '';
+  document.getElementById('home-dates').textContent = c.dates ? '📅 ' + c.dates : '';
+  document.getElementById('home-location').textContent = c.location ? '📍 ' + c.location : '';
+  document.getElementById('home-count').textContent = c.attendeeLabel ? '👥 ' + c.attendeeLabel : '';
+}
+
 async function openEditBanner() {
-  const c = loadObj('config');
+  const rows = await dbGet('config', '&key=eq.convention');
+  const c = rows[0]?.value || {};
   openModal(`<div class="modal">
     <h3>✏️ Edit Convention Details</h3>
     <form id="banner-form">
@@ -504,28 +539,46 @@ async function openEditBanner() {
         <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
-  </div>`, form => {
-    store('config', { name: form.name.value.trim(), tagline: form.tagline.value.trim(), presenter: form.presenter.value.trim(), dates: form.dates.value.trim(), location: form.location.value.trim(), attendeeLabel: form.attendeeLabel.value.trim() });
-    closeModal(); loadHome(); showToast('Convention details updated');
+  </div>`, async form => {
+    try {
+      await dbUpsert('config', { key: 'convention', value: {
+        name: form.name.value.trim(), tagline: form.tagline.value.trim(),
+        presenter: form.presenter.value.trim(), dates: form.dates.value.trim(),
+        location: form.location.value.trim(), attendeeLabel: form.attendeeLabel.value.trim()
+      }});
+      closeModal(); loadHome(); showToast('Convention details updated');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
-// ─── Sessions ──────────────────────────────────────────────────────
+// ─── Stats ────────────────────────────────────────────────────────
+async function loadStats() {
+  const [sessions, attendees, meetups, booths] = await Promise.all([
+    dbGet('sessions'), dbGet('attendees'), dbGet('meetups'), dbGet('booths')
+  ]);
+  document.getElementById('stat-sessions').textContent = sessions.length + ' sessions';
+  document.getElementById('stat-attendees').textContent = attendees.length + ' registered';
+  document.getElementById('stat-meetups').textContent = meetups.length + ' scheduled';
+  document.getElementById('stat-booths').textContent = booths.length + ' exhibitors';
+}
+
+// ─── Sessions ────────────────────────────────────────────────────
 let allSessions = [];
+const toMin = t => {
+  const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(t || '');
+  if (!m) return 0;
+  let h = parseInt(m[1]); const min = parseInt(m[2]); const ap = m[3].toUpperCase();
+  if (ap === 'PM' && h !== 12) h += 12;
+  if (ap === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+};
 
 async function loadSessions() {
   const container = document.getElementById('sessions-list');
   if (!container) return;
-  allSessions = load('sessions').sort((a, b) => {
+  container.innerHTML = '<div class="spinner"></div>';
+  allSessions = (await dbGet('sessions')).sort((a, b) => {
     if (a.day !== b.day) return a.day - b.day;
-    const toMin = t => {
-      const m = /(\d+):(\d+)\s*(AM|PM)/i.exec(t || '');
-      if (!m) return 0;
-      let h = parseInt(m[1]); const min = parseInt(m[2]); const ap = m[3].toUpperCase();
-      if (ap === 'PM' && h !== 12) h += 12;
-      if (ap === 'AM' && h === 12) h = 0;
-      return h * 60 + min;
-    };
     return toMin(a.time) - toMin(b.time);
   });
   if (allSessions.length === 0) {
@@ -582,28 +635,29 @@ function sessionFormHtml(s = {}) {
 }
 
 function openAddSession() {
-  openModal(sessionFormHtml(), form => {
-    const sessions = load('sessions');
-    sessions.push({ id: genId(), title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() });
-    store('sessions', sessions);
-    closeModal(); loadSessions(); loadStats(); showToast('Session added');
+  openModal(sessionFormHtml(), async form => {
+    try {
+      await dbInsert('sessions', { id: genId(), title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() });
+      closeModal(); loadSessions(); loadStats(); showToast('Session added');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
 function openEditSession(id) {
   const s = allSessions.find(x => x.id === id);
   if (!s) return;
-  openModal(sessionFormHtml(s), form => {
-    const sessions = load('sessions').map(x => x.id === id ? { ...x, title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() } : x);
-    store('sessions', sessions);
-    closeModal(); loadSessions(); showToast('Session updated');
+  openModal(sessionFormHtml(s), async form => {
+    try {
+      await dbPatch('sessions', id, { title: form.title.value.trim(), speaker: form.speaker.value.trim(), day: parseInt(form.day.value), time: form.time.value.trim(), room: form.room.value.trim(), track: form.track.value, description: form.description.value.trim() });
+      closeModal(); loadSessions(); showToast('Session updated');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
-function deleteSession(id) {
+async function deleteSession(id) {
   if (!confirm('Delete this session?')) return;
-  store('sessions', load('sessions').filter(x => x.id !== id));
-  loadSessions(); loadStats(); showToast('Session deleted');
+  try { await dbDelete('sessions', id); loadSessions(); loadStats(); showToast('Session deleted'); }
+  catch(e) { showToast('Delete failed'); }
 }
 
 // ─── Attendees ────────────────────────────────────────────────────
@@ -612,84 +666,82 @@ let allAttendees = [];
 async function loadAttendees() {
   const container = document.getElementById('attendees-list');
   if (!container) return;
-  allAttendees = load('attendees').sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  container.innerHTML = '<div class="spinner"></div>';
+  allAttendees = (await dbGet('attendees')).sort((a,b) => (a.name||'').localeCompare(b.name||''));
   renderAttendees(allAttendees);
 }
 
 function renderAttendees(list) {
   const container = document.getElementById('attendees-list');
   if (!container) return;
-  if (list.length === 0) {
-    container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No attendees found.</p>';
-    return;
-  }
+  if (list.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No attendees found.</p>'; return; }
   container.innerHTML = `<div class="attendees-grid">${list.map(a => `
     <div class="card attendee-card">
-      <div class="avatar">${escapeHtml((a.name || '?').charAt(0))}</div>
+      <div class="avatar">${escapeHtml((a.name||'?').charAt(0))}</div>
       <div class="attendee-name">${escapeHtml(a.name)}</div>
       <div class="attendee-company">${escapeHtml(a.company)}</div>
       <div class="attendee-role">${escapeHtml(a.role)}</div>
-      ${isAdmin() ? `
-        <div class="admin-row" style="justify-content:center;margin-top:8px">
-          <button class="btn btn-ghost btn-sm" onclick="openEditAttendee('${a.id}')">✏️</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteAttendee('${a.id}')">🗑</button>
-        </div>` : ''}
-    </div>
-  `).join('')}</div>`;
+      ${isAdmin() ? `<div class="admin-row" style="justify-content:center;margin-top:8px">
+        <button class="btn btn-ghost btn-sm" onclick="openEditAttendee('${a.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteAttendee('${a.id}')">🗑</button>
+      </div>` : ''}
+    </div>`).join('')}</div>`;
 }
 
 function filterAttendees() {
   const q = document.getElementById('attendee-search').value.toLowerCase();
   renderAttendees(allAttendees.filter(a =>
-    (a.name || '').toLowerCase().includes(q) || (a.company || '').toLowerCase().includes(q)
+    (a.name||'').toLowerCase().includes(q) || (a.company||'').toLowerCase().includes(q)
   ));
 }
 
 function attendeeFormHtml(a = {}) {
-  return `
-    <div class="modal">
-      <h3>${a.id ? 'Edit' : 'Add'} Attendee</h3>
-      <form id="attendee-form">
-        <div class="form-group"><label>Name</label><input name="name" value="${escapeAttr(a.name)}" required /></div>
-        <div class="form-group"><label>Company</label><input name="company" value="${escapeAttr(a.company)}" /></div>
-        <div class="form-group"><label>Role</label><input name="role" value="${escapeAttr(a.role)}" /></div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
-    </div>`;
+  return `<div class="modal">
+    <h3>${a.id ? 'Edit' : 'Add'} Attendee</h3>
+    <form id="attendee-form">
+      <div class="form-group"><label>Name</label><input name="name" value="${escapeAttr(a.name)}" required /></div>
+      <div class="form-group"><label>Company</label><input name="company" value="${escapeAttr(a.company)}" /></div>
+      <div class="form-group"><label>Role</label><input name="role" value="${escapeAttr(a.role)}" /></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 function openAddAttendee() {
-  openModal(attendeeFormHtml(), form => {
-    const attendees = load('attendees');
-    attendees.push({ id: genId(), name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatarUrl: '' });
-    store('attendees', attendees);
-    closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
+  openModal(attendeeFormHtml(), async form => {
+    try {
+      await dbInsert('attendees', { id: genId(), name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim(), avatar_url: '' });
+      closeModal(); loadAttendees(); loadStats(); showToast('Attendee added');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
 function openEditAttendee(id) {
   const a = allAttendees.find(x => x.id === id);
   if (!a) return;
-  openModal(attendeeFormHtml(a), form => {
-    store('attendees', load('attendees').map(x => x.id === id ? { ...x, name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() } : x));
-    closeModal(); loadAttendees(); showToast('Attendee updated');
+  openModal(attendeeFormHtml(a), async form => {
+    try {
+      await dbPatch('attendees', id, { name: form.name.value.trim(), company: form.company.value.trim(), role: form.role.value.trim() });
+      closeModal(); loadAttendees(); showToast('Attendee updated');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
-function deleteAttendee(id) {
+async function deleteAttendee(id) {
   if (!confirm('Remove this attendee?')) return;
-  store('attendees', load('attendees').filter(x => x.id !== id));
-  loadAttendees(); loadStats(); showToast('Attendee removed');
+  try { await dbDelete('attendees', id); loadAttendees(); loadStats(); showToast('Attendee removed'); }
+  catch(e) { showToast('Delete failed'); }
 }
 
 // ─── Meetups ──────────────────────────────────────────────────────
 async function loadMeetups() {
   const container = document.getElementById('meetups-list');
   if (!container) return;
-  const meetups = load('meetups').sort((a,b) => (a.datetime||'').localeCompare(b.datetime||''));
+  container.innerHTML = '<div class="spinner"></div>';
+  const meetups = (await dbGet('meetups')).sort((a,b) => (a.datetime||'').localeCompare(b.datetime||''));
   if (meetups.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No meetups yet. Propose one!</p>'; return; }
   container.innerHTML = meetups.map(m => `
     <div class="card meetup-card" style="margin-bottom:12px">
@@ -707,15 +759,37 @@ async function loadMeetups() {
     </div>`).join('');
 }
 
-function confirmMeetup(id) {
-  store('meetups', load('meetups').map(x => x.id === id ? { ...x, status: 'confirmed' } : x));
-  loadMeetups(); showToast('Meetup confirmed!');
+async function confirmMeetup(id) {
+  try { await dbPatch('meetups', id, { status: 'confirmed' }); loadMeetups(); showToast('Meetup confirmed!'); }
+  catch(e) { showToast('Failed'); }
 }
 
-function deleteMeetup(id) {
+async function deleteMeetup(id) {
   if (!confirm('Delete this meetup?')) return;
-  store('meetups', load('meetups').filter(x => x.id !== id));
-  loadMeetups(); loadStats(); showToast('Meetup deleted');
+  try { await dbDelete('meetups', id); loadMeetups(); loadStats(); showToast('Meetup deleted'); }
+  catch(e) { showToast('Delete failed'); }
+}
+
+function openProposeMeetup() {
+  openModal(`<div class="modal">
+    <h3>🤝 Propose a Meetup</h3>
+    <form id="meetup-form">
+      <div class="form-group"><label>Your Name</label><input name="proposer" required placeholder="Your name" /></div>
+      <div class="form-group"><label>Participants</label><input name="participants" required placeholder="e.g. Alex, Mia, Sam" /></div>
+      <div class="form-group"><label>Date &amp; Time</label><input name="datetime" required placeholder="e.g. June 13, 2:00 PM" /></div>
+      <div class="form-group"><label>Location or Link</label><input name="location" required placeholder="e.g. Lobby" /></div>
+      <div class="form-group"><label>Notes (optional)</label><textarea name="notes" placeholder="What&apos;s this meetup about?"></textarea></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Propose</button>
+      </div>
+    </form>
+  </div>`, async form => {
+    try {
+      await dbInsert('meetups', { id: genId(), proposer: form.proposer.value.trim(), participants: form.participants.value.trim(), datetime: form.datetime.value.trim(), location: form.location.value.trim(), notes: form.notes.value.trim(), status: 'pending' });
+      closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
+    } catch(e) { showToast('Save failed'); }
+  });
 }
 
 // ─── Booths ───────────────────────────────────────────────────────
@@ -724,7 +798,8 @@ let allBooths = [];
 async function loadBooths() {
   const container = document.getElementById('booths-list');
   if (!container) return;
-  allBooths = load('booths').sort((a,b) => (a.company||'').localeCompare(b.company||''));
+  container.innerHTML = '<div class="spinner"></div>';
+  allBooths = (await dbGet('booths')).sort((a,b) => (a.company||'').localeCompare(b.company||''));
   if (allBooths.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No booths yet.</p>'; return; }
   container.innerHTML = allBooths.map(b => `
     <div class="card booth-card">
@@ -742,59 +817,85 @@ async function loadBooths() {
 }
 
 function boothFormHtml(b = {}) {
-  return `
-    <div class="modal">
-      <h3>${b.id ? 'Edit' : 'Add'} Booth</h3>
-      <form id="booth-form">
-        <div class="form-group"><label>Company Name</label><input name="company" value="${escapeAttr(b.company)}" required /></div>
-        <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(b.tagline)}" /></div>
-        <div class="form-group"><label>Description</label><textarea name="description">${escapeHtml(b.description)}</textarea></div>
-        <div class="form-group"><label>Website URL</label><input name="website" type="url" value="${escapeAttr(b.website)}" placeholder="https://…" /></div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-        </div>
-      </form>
-    </div>`;
+  return `<div class="modal">
+    <h3>${b.id ? 'Edit' : 'Add'} Booth</h3>
+    <form id="booth-form">
+      <div class="form-group"><label>Company Name</label><input name="company" value="${escapeAttr(b.company)}" required /></div>
+      <div class="form-group"><label>Tagline</label><input name="tagline" value="${escapeAttr(b.tagline)}" /></div>
+      <div class="form-group"><label>Description</label><textarea name="description">${escapeHtml(b.description)}</textarea></div>
+      <div class="form-group"><label>Website URL</label><input name="website" type="url" value="${escapeAttr(b.website)}" placeholder="https://…" /></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>`;
 }
 
 function openAddBooth() {
-  openModal(boothFormHtml(), form => {
-    const booths = load('booths');
-    booths.push({ id: genId(), company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logoUrl: '' });
-    store('booths', booths);
-    closeModal(); loadBooths(); loadStats(); showToast('Booth added');
+  openModal(boothFormHtml(), async form => {
+    try {
+      await dbInsert('booths', { id: genId(), company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim(), logo_url: '' });
+      closeModal(); loadBooths(); loadStats(); showToast('Booth added');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
 function openEditBooth(id) {
   const b = allBooths.find(x => x.id === id);
   if (!b) return;
-  openModal(boothFormHtml(b), form => {
-    store('booths', load('booths').map(x => x.id === id ? { ...x, company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() } : x));
-    closeModal(); loadBooths(); showToast('Booth updated');
+  openModal(boothFormHtml(b), async form => {
+    try {
+      await dbPatch('booths', id, { company: form.company.value.trim(), tagline: form.tagline.value.trim(), description: form.description.value.trim(), website: form.website.value.trim() });
+      closeModal(); loadBooths(); showToast('Booth updated');
+    } catch(e) { showToast('Save failed'); }
   });
 }
 
-function deleteBooth(id) {
+async function deleteBooth(id) {
   if (!confirm('Delete this booth?')) return;
-  store('booths', load('booths').filter(x => x.id !== id));
-  loadBooths(); loadStats(); showToast('Booth deleted');
+  try { await dbDelete('booths', id); loadBooths(); loadStats(); showToast('Booth deleted'); }
+  catch(e) { showToast('Delete failed'); }
 }
 
 // ─── Group Chat ───────────────────────────────────────────────────
-let chatInitialized = false;
+let _chatMessages = [];
+let _chatLastTs = 0;
+let _chatPollTimer;
 
 function initChat() {
-  if (chatInitialized) return;
-  chatInitialized = true;
-  renderMessages(load('chat'));
+  clearInterval(_chatPollTimer);
+  _chatMessages = []; _chatLastTs = 0;
+  loadChatFull();
+  _chatPollTimer = setInterval(() => {
+    if (document.getElementById('screen-chat').classList.contains('active')) {
+      loadChatNew();
+    } else {
+      clearInterval(_chatPollTimer);
+    }
+  }, 3000);
+}
+
+async function loadChatFull() {
+  const msgs = await dbGet('messages', '&order=timestamp.asc&limit=200');
+  _chatMessages = msgs;
+  if (msgs.length) _chatLastTs = msgs[msgs.length - 1].timestamp;
+  renderMessages(msgs);
+}
+
+async function loadChatNew() {
+  if (!_chatMessages.length) { loadChatFull(); return; }
+  const newMsgs = await dbGet('messages', `&order=timestamp.asc&timestamp=gt.${_chatLastTs}`);
+  if (!newMsgs.length) return;
+  _chatMessages = [..._chatMessages, ...newMsgs].slice(-200);
+  _chatLastTs = _chatMessages[_chatMessages.length - 1].timestamp;
+  renderMessages(_chatMessages);
 }
 
 function renderMessages(messages) {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  if (messages.length === 0) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No messages yet. Say hello!</p>'; return; }
+  if (!messages.length) { container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px">No messages yet. Say hello!</p>'; return; }
   container.innerHTML = messages.map(m => `
     <div class="chat-message">
       <div class="chat-author">${escapeHtml(m.author||'')}</div>
@@ -804,7 +905,7 @@ function renderMessages(messages) {
   container.scrollTop = container.scrollHeight;
 }
 
-function sendChatMessage() {
+async function sendChatMessage() {
   const input = document.getElementById('chat-input');
   if (!input) return;
   const text = input.value.trim();
@@ -817,38 +918,24 @@ function sendChatMessage() {
     localStorage.setItem('chatDisplayName', author);
   }
   input.value = '';
-  const messages = load('chat');
-  messages.push({ id: genId(), author, text, timestamp: Date.now() });
-  store('chat', messages);
-  renderMessages(messages);
+  try {
+    await dbInsert('messages', { id: genId(), author, text, timestamp: Date.now() });
+    await loadChatFull();
+  } catch(e) { showToast('Message failed to send'); input.value = text; }
 }
-
-function escapeHtml(str) {
-  if (str === null || str === undefined) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-// For values inserted into HTML attribute values via template strings.
-// Same as escapeHtml — kept as alias for clarity at call sites.
-const escapeAttr = escapeHtml;
 
 // ─── Seed Data ────────────────────────────────────────────────────
-function seedData() {
-  if (localStorage.getItem('blobcon_seeded') === 'true') return;
+async function seedData() {
+  const existing = await dbGet('sessions', '&limit=1');
+  if (existing.length > 0) return;
 
-  store('config', {
-    name: 'BlobCon 2025',
-    tagline: 'The Future of Social Connectivity',
-    presenter: 'BLOBS NETWORK PRESENTS',
-    dates: 'June 12–14, 2025',
-    location: 'San Francisco, CA',
-    attendeeLabel: '342 Attendees'
-  });
+  await dbUpsert('config', { key: 'convention', value: {
+    name: 'BlobCon 2025', tagline: 'The Future of Social Connectivity',
+    presenter: 'BLOBS NETWORK PRESENTS', dates: 'June 12–14, 2025',
+    location: 'San Francisco, CA', attendeeLabel: '342 Attendees'
+  }});
 
-  store('sessions', [
+  await dbInsert('sessions', [
     { id: genId(), day: 1, time: '9:00 AM', title: 'Opening Keynote: The Anti-Polarization Stack', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Kicking off BlobCon with a deep dive into how Blobs Network is reimagining social connectivity.' },
     { id: genId(), day: 1, time: '11:00 AM', title: 'Workshop: Blob Architecture in Practice', speaker: 'Mia Chen', room: 'Workshop A', track: 'Engineering', description: 'Hands-on session covering the technical design of micro-communities and blob federation.' },
     { id: genId(), day: 1, time: '2:00 PM', title: 'Panel: Building for Trust in Social Networks', speaker: 'Rivera, Chen, & Obi', room: 'Main Stage', track: 'Community', description: 'A candid conversation about fake accounts, moderation, and earning user trust at scale.' },
@@ -865,79 +952,43 @@ function seedData() {
     { id: genId(), day: 3, time: '2:00 PM', title: 'Closing Keynote: Where We Go From Here', speaker: 'Alex Rivera', room: 'Main Stage', track: 'Keynote', description: 'Vision for the next chapter of Blobs Network and the future of decentralized social platforms.' },
   ]);
 
-  store('attendees', [
-    { id: genId(), name: 'Alex Rivera', company: 'Blobs Network', role: 'CEO & Co-founder', avatarUrl: '' },
-    { id: genId(), name: 'Amara Diallo', company: 'CommunityOS', role: 'Founder', avatarUrl: '' },
-    { id: genId(), name: 'Ben Walsh', company: 'Blobs Network', role: 'Growth Manager', avatarUrl: '' },
-    { id: genId(), name: 'Carlos Mendes', company: 'Freelance', role: 'UI/UX Designer', avatarUrl: '' },
-    { id: genId(), name: 'Dana Park', company: 'Social Good Co', role: 'Head of Trust & Safety', avatarUrl: '' },
-    { id: genId(), name: 'Eli Shapiro', company: 'ProtocolX', role: 'Developer Advocate', avatarUrl: '' },
-    { id: genId(), name: 'Fatima Al-Zahra', company: 'SafeNet AI', role: 'Research Lead', avatarUrl: '' },
-    { id: genId(), name: 'Jordan Lee', company: 'Emerge Ventures', role: 'Partner', avatarUrl: '' },
-    { id: genId(), name: 'Mia Chen', company: 'Blobs Network', role: 'Engineering Lead', avatarUrl: '' },
-    { id: genId(), name: 'Priya Nair', company: 'MetaLayer', role: 'CTO', avatarUrl: '' },
-    { id: genId(), name: 'Sam Obi', company: 'TokenForge', role: 'Product Director', avatarUrl: '' },
-    { id: genId(), name: 'Yuki Tanaka', company: 'Horizon Labs', role: 'Backend Engineer', avatarUrl: '' },
+  await dbInsert('attendees', [
+    { id: genId(), name: 'Alex Rivera', company: 'Blobs Network', role: 'CEO & Co-founder', avatar_url: '' },
+    { id: genId(), name: 'Amara Diallo', company: 'CommunityOS', role: 'Founder', avatar_url: '' },
+    { id: genId(), name: 'Ben Walsh', company: 'Blobs Network', role: 'Growth Manager', avatar_url: '' },
+    { id: genId(), name: 'Carlos Mendes', company: 'Freelance', role: 'UI/UX Designer', avatar_url: '' },
+    { id: genId(), name: 'Dana Park', company: 'Social Good Co', role: 'Head of Trust & Safety', avatar_url: '' },
+    { id: genId(), name: 'Eli Shapiro', company: 'ProtocolX', role: 'Developer Advocate', avatar_url: '' },
+    { id: genId(), name: 'Fatima Al-Zahra', company: 'SafeNet AI', role: 'Research Lead', avatar_url: '' },
+    { id: genId(), name: 'Jordan Lee', company: 'Emerge Ventures', role: 'Partner', avatar_url: '' },
+    { id: genId(), name: 'Mia Chen', company: 'Blobs Network', role: 'Engineering Lead', avatar_url: '' },
+    { id: genId(), name: 'Priya Nair', company: 'MetaLayer', role: 'CTO', avatar_url: '' },
+    { id: genId(), name: 'Sam Obi', company: 'TokenForge', role: 'Product Director', avatar_url: '' },
+    { id: genId(), name: 'Yuki Tanaka', company: 'Horizon Labs', role: 'Backend Engineer', avatar_url: '' },
   ]);
 
-  store('booths', [
-    { id: genId(), company: 'TokenForge', tagline: 'Incentivize everything', description: 'Token infrastructure for social platforms — rewards, governance, and digital ownership at scale.', logoUrl: '', website: 'https://example.com' },
-    { id: genId(), company: 'MetaLayer', tagline: 'Your world, your rules', description: '3D virtual space SDK — drop a metaverse into any web app in under an hour.', logoUrl: '', website: 'https://example.com' },
-    { id: genId(), company: 'SafeNet AI', tagline: 'Moderation that gets it right', description: 'AI content moderation API trained on nuanced community guidelines, not just keyword lists.', logoUrl: '', website: 'https://example.com' },
-    { id: genId(), company: 'ProtocolX', tagline: 'Open social infrastructure', description: 'Decentralized identity and social graph protocol — bring your followers anywhere.', logoUrl: '', website: 'https://example.com' },
-    { id: genId(), company: 'CommunityOS', tagline: 'Communities deserve better tools', description: 'The operating system for online communities — analytics, moderation, and member management.', logoUrl: '', website: 'https://example.com' },
+  await dbInsert('booths', [
+    { id: genId(), company: 'TokenForge', tagline: 'Incentivize everything', description: 'Token infrastructure for social platforms — rewards, governance, and digital ownership at scale.', logo_url: '', website: 'https://example.com' },
+    { id: genId(), company: 'MetaLayer', tagline: 'Your world, your rules', description: '3D virtual space SDK — drop a metaverse into any web app in under an hour.', logo_url: '', website: 'https://example.com' },
+    { id: genId(), company: 'SafeNet AI', tagline: 'Moderation that gets it right', description: 'AI content moderation API trained on nuanced community guidelines, not just keyword lists.', logo_url: '', website: 'https://example.com' },
+    { id: genId(), company: 'ProtocolX', tagline: 'Open social infrastructure', description: 'Decentralized identity and social graph protocol — bring your followers anywhere.', logo_url: '', website: 'https://example.com' },
+    { id: genId(), company: 'CommunityOS', tagline: 'Communities deserve better tools', description: 'The operating system for online communities — analytics, moderation, and member management.', logo_url: '', website: 'https://example.com' },
   ]);
-
-  store('meetups', []);
-  store('chat', []);
-  localStorage.setItem('blobcon_seeded', 'true');
 }
 
-function openProposeMeetup() {
-  openModal(`<div class="modal">
-    <h3>🤝 Propose a Meetup</h3>
-    <form id="meetup-form">
-      <div class="form-group"><label>Your Name</label><input name="proposer" required placeholder="Your name" /></div>
-      <div class="form-group"><label>Participants</label><input name="participants" required placeholder="e.g. Alex, Mia, Sam" /></div>
-      <div class="form-group"><label>Date &amp; Time</label><input name="datetime" required placeholder="e.g. June 13, 2:00 PM" /></div>
-      <div class="form-group"><label>Location or Link</label><input name="location" required placeholder="e.g. Lobby" /></div>
-      <div class="form-group"><label>Notes (optional)</label><textarea name="notes" placeholder="What&apos;s this meetup about?"></textarea></div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-        <button type="submit" class="btn btn-primary">Propose</button>
-      </div>
-    </form>
-  </div>`, form => {
-    const meetups = load('meetups');
-    meetups.push({ id: genId(), proposer: form.proposer.value.trim(), participants: form.participants.value.trim(), datetime: form.datetime.value.trim(), location: form.location.value.trim(), notes: form.notes.value.trim(), status: 'pending' });
-    store('meetups', meetups);
-    closeModal(); loadMeetups(); loadStats(); showToast('Meetup proposed!');
-  });
+// ─── Init ─────────────────────────────────────────────────────────
+async function init() {
+  try {
+    await seedData();
+  } catch(e) {
+    console.error('Seed failed:', e);
+  }
+  await Promise.all([loadHome(), loadStats()]);
+  refreshAdminControls();
+  console.log('Supabase app ready.');
 }
 
-// ─── Home Screen ─────────────────────────────────────────────────
-async function loadHome() {
-  const c = loadObj('config');
-  document.getElementById('home-presenter').textContent = c.presenter || '';
-  document.getElementById('home-name').textContent = c.name || 'Convention';
-  document.getElementById('home-tagline').textContent = c.tagline || '';
-  document.getElementById('home-dates').textContent = c.dates ? '📅 ' + c.dates : '';
-  document.getElementById('home-location').textContent = c.location ? '📍 ' + c.location : '';
-  document.getElementById('home-count').textContent = c.attendeeLabel ? '👥 ' + c.attendeeLabel : '';
-}
-
-async function loadStats() {
-  document.getElementById('stat-sessions').textContent = load('sessions').length + ' sessions';
-  document.getElementById('stat-attendees').textContent = load('attendees').length + ' registered';
-  document.getElementById('stat-meetups').textContent = load('meetups').length + ' scheduled';
-  document.getElementById('stat-booths').textContent = load('booths').length + ' exhibitors';
-}
-
-seedData();
-loadHome();
-loadStats();
-
-console.log('localStorage app ready.');
+init();
 </script>
 </body>
 </html>
